@@ -1,0 +1,76 @@
+{
+    "name": "gerber-x3-x2-format-support",
+    "displayName": "Gerber X3/X2 Format Support",
+    "description": "Visual Studio Code support for Gerber X3/X2 file format",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.82.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [],
+    "main": "./extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "gerber",
+                "aliases": [
+                    "Gerber",
+                    "gerber"
+                ],
+                "extensions": [
+                    ".grb",
+                    ".gto",
+                    ".gts",
+                    ".gtl",
+                    ".g1",
+                    ".g2",
+                    ".gp1",
+                    ".gp2",
+                    ".gbl",
+                    ".gpb",
+                    ".gbs",
+                    ".gbo",
+                    ".gd1",
+                    ".gg1",
+                    ".gko",
+                    ".gm1",
+                    ".gm2",
+                    ".gm3",
+                    ".gtp",
+                    ".gbp"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "gerber",
+                "scopeName": "source.gerber",
+                "path": "./syntaxes/gerber.tmLanguage.json"
+            }
+        ],
+        "commands": [
+            {
+                "command": "gerber-x3-x2-format-support.helloWorld",
+                "title": "Hello World"
+            }
+        ]
+    },
+    "scripts": {
+        "lint": "eslint .",
+        "pretest": "npm run lint",
+        "test": "node ./test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.82.0",
+        "@types/mocha": "^10.0.1",
+        "@types/node": "16.x",
+        "eslint": "^8.47.0",
+        "glob": "^10.3.3",
+        "mocha": "^10.2.0",
+        "typescript": "^5.1.6",
+        "@vscode/test-electron": "^2.3.4"
+    }
+}
