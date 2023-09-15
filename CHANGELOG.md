@@ -4,6 +4,6 @@ All notable changes to the "gerber-x3-x2-format-support" extension will be docum
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [1.0.0]
 
-- Initial release
+- Basic support for some of Gerber X3/X2 syntax.

@@ -15,12 +15,19 @@
         "type": "git",
         "url": "https://github.com/Argmaster/vscode-gerber-format-support.git"
     },
+    "bugs": "https://github.com/Argmaster/vscode-gerber-format-support/issues",
     "engines": {
         "vscode": "^1.82.0"
     },
     "categories": [
         "Other"
     ],
+    "capabilities": {
+        "untrustedWorkspaces": {
+            "supported": true
+        },
+        "virtualWorkspaces": true
+    },
     "activationEvents": [],
     "main": "./extension.js",
     "contributes": {
@@ -61,12 +68,6 @@
                 "language": "gerber",
                 "scopeName": "source.gerber",
                 "path": "./syntaxes/gerber.tmLanguage.json"
-            }
-        ],
-        "commands": [
-            {
-                "command": "gerber-x3-x2-format-support.helloWorld",
-                "title": "Hello World"
             }
         ]
     },

@@ -8,11 +8,19 @@
             "match": "G04([^%*]*)\\*"
         },
         {
+            "name": "comment.g04.gerber",
+            "match": "%IN([^%*]*)\\*%"
+        },
+        {
+            "name": "variable.name.macro.gerber",
+            "match": "\\$\\d+"
+        },
+        {
             "name": "comment.attributes.gerber",
             "match": "%(TF|TA|TO|TD)([^%*]*)\\*%"
         },
         {
-            "name": "keyword.command.d.gerber",
+            "name": "entity.name.function.draw-command.gerber",
             "match": "(D01|D02|D03)"
         },
         {
@@ -21,7 +29,7 @@
         },
         {
             "name": "keyword.command.other.gerber",
-            "match": "(FS|AD|AM|LP|LM|LR|LS|AB|SR|OF|MO)"
+            "match": "(FS|AD|AM|LP|LM|LR|LS|AB|SR|OF|MO|IP)"
         },
         {
             "name": "constant.other.format.gerber",
@@ -44,8 +52,24 @@
             "match": "[+-]?((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+))"
         },
         {
+            "name": "constant.character.polarity.gerber",
+            "match": "(?<=(LP))[DC]"
+        },
+        {
+            "name": "constant.character.file.polarity.gerber",
+            "match": "(?<=(IP))(POS|NEG)"
+        },
+        {
+            "name": "constant.character.unit.gerber",
+            "match": "(?<=(MO))(MM|IN)"
+        },
+        {
             "name": "entity.name.function.aperture.gerber",
             "match": "D(0?[1-9][0-9]+)"
+        },
+        {
+            "name": "entity.name.class.macro.gerber",
+            "match": "(?<=(%AM))([._a-zA-Z$][._a-zA-Z0-9]*)"
         },
         {
             "name": "keyword.control.end_of_file.gerber",
