@@ -28,6 +28,7 @@
         },
         "virtualWorkspaces": true
     },
+    "publisher": "argmaster",
     "activationEvents": [],
     "main": "./extension.js",
     "contributes": {
