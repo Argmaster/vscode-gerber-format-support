@@ -2,7 +2,19 @@
     "name": "gerber-x3-x2-format-support",
     "displayName": "Gerber X3/X2 Format Support",
     "description": "Visual Studio Code support for Gerber X3/X2 file format",
-    "version": "0.0.1",
+    "version": "1.0.0",
+    "license": "MIT",
+    "maintainers": [
+        {
+            "name": "Krzysztof Wiśniewski",
+            "email": "argmaster.world@gmail.com",
+            "url": "https://www.linkedin.com/in/krzysztof-wisniewski-pl/"
+        }
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Argmaster/vscode-gerber-format-support.git"
+    },
     "engines": {
         "vscode": "^1.82.0"
     },
