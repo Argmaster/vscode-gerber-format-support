@@ -2,7 +2,7 @@
     "name": "gerber-x3-x2-format-support",
     "displayName": "Gerber X3/X2 Format Support",
     "description": "Visual Studio Code support for Gerber X3/X2 file format",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "license": "MIT",
     "maintainers": [
         {
@@ -17,7 +17,7 @@
     },
     "bugs": "https://github.com/Argmaster/vscode-gerber-format-support/issues",
     "engines": {
-        "vscode": "^1.82.0"
+        "vscode": "^1.70.0"
     },
     "categories": [
         "Other"
@@ -79,7 +79,7 @@
         "test": "node ./test/runTest.js"
     },
     "devDependencies": {
-        "@types/vscode": "^1.82.0",
+        "@types/vscode": "^1.70.0",
         "@types/mocha": "^10.0.1",
         "@types/node": "16.x",
         "eslint": "^8.47.0",

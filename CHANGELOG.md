@@ -4,9 +4,15 @@ All notable changes to the "gerber-x3-x2-format-support" extension will be docum
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.2]
+
+- Added installation guide.
+- Updated README.md.
+- Fixed highlighting of one digit coordinate data (eg. I0 J0).
+
 ## [1.0.1]
 
-- Add package icon.
+- Added package icon.
 
 ## [1.0.0]
 
