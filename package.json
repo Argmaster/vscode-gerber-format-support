@@ -52,22 +52,26 @@
         "vscode": "^1.70.0"
     },
     "dependencies": {
-        "vscode-languageclient": "^7.0.0"
+        "fs-extra": "^11.1.1",
+        "ovsx": "^0.7.1",
+        "vscode-languageclient": "^8.1.0",
+        "vscode-languageserver-textdocument": "^1.0.8"
     },
     "devDependencies": {
-        "@types/vscode": "^1.70.0",
+        "@types/fs-extra": "^11.0.2",
         "@types/mocha": "^10.0.1",
         "@types/node": "16.x",
+        "@types/vscode": "^1.70.0",
         "@typescript-eslint/eslint-plugin": "^6.4.1",
         "@typescript-eslint/parser": "^6.4.1",
+        "@vscode/test-electron": "^2.3.4",
         "eslint": "^8.47.0",
         "glob": "^10.3.3",
         "mocha": "^10.2.0",
-        "typescript": "^5.1.6",
         "ts-loader": "^9.4.4",
+        "typescript": "^5.1.6",
         "webpack": "^5.88.2",
-        "webpack-cli": "^5.1.4",
-        "@vscode/test-electron": "^2.3.4"
+        "webpack-cli": "^5.1.4"
     },
     "scripts": {
         "vscode:prepublish": "npm run package",
@@ -89,6 +93,7 @@
                     "gerber"
                 ],
                 "extensions": [
+                    ".gbr",
                     ".grb",
                     ".gto",
                     ".gts",
@@ -119,6 +124,38 @@
                 "scopeName": "source.gerber",
                 "path": "./language/syntaxes/gerber.tmLanguage.json"
             }
-        ]
+        ],
+        "configuration": {
+            "properties": {
+                "gerber_x3_x2_format_support.args": {
+                    "default": [],
+                    "markdownDescription": "Additional command-line arguments to pass to `PyGerber`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "scope": "resource",
+                    "type": "array"
+                },
+                "gerber_x3_x2_format_support.interpreter": {
+                    "default": [],
+                    "markdownDescription": "Path to a Python interpreter to use to run the linter server.",
+                    "scope": "window",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "gerber_x3_x2_format_support.enable": {
+                    "default": true,
+                    "markdownDescription": "Whether to enable the Ruff extension.",
+                    "scope": "window",
+                    "type": "boolean"
+                }
+            }
+        }
+    },
+    "serverInfo": {
+        "name": "Gerber Language Server",
+        "module": "gerber_x3_x2_format_support"
     }
 }

@@ -3,77 +3,368 @@
     "name": "gerber",
     "scopeName": "source.gerber",
     "patterns": [
-        {
-            "name": "comment.g04.gerber",
-            "match": "G04([^%*]*)\\*"
+        { "include": "#attribute_comment" },
+        { "include": "#comment" },
+        { "include": "#statement" },
+        { "include": "#g_code" },
+        { "include": "#coordinate" },
+        { "include": "#draw_operations" },
+        { "include": "#aperture_identifier" },
+        { "include": "#end-of-expression" },
+        { "include": "#end-of-file" }
+    ],
+    "repository": {
+        "g_code": {
+            "match": "(G01|G02|G03|G36|G37|G54|G55|G70|G71|G74|G75|G90|G91)",
+            "name": "keyword.g_code"
         },
-        {
-            "name": "comment.g04.gerber",
-            "match": "%IN([^%*]*)\\*%"
+        "draw_operations": {
+            "match": "(D01|D02|D03)",
+            "name": "keyword.draw_operation"
         },
-        {
-            "name": "variable.name.macro.gerber",
-            "match": "\\$\\d+"
+        "aperture_specification": {
+            "match": "([._a-zA-Z$][._a-zA-Z0-9]*)(,.*?)(?=(\\*))",
+            "captures": {
+                "1": { "patterns": [{ "include": "#name" }] },
+                "2": {
+                    "patterns": [
+                        { "include": "#decimal" },
+                        { "match": ",X", "name": "punctuation.separator" }
+                    ]
+                }
+            }
         },
-        {
-            "name": "comment.attributes.gerber",
-            "match": "%(TF|TA|TO|TD)([^%*]*)\\*%"
+        "coordinate": {
+            "match": "([XYIJ])([+-]?[0-9]+)",
+            "captures": {
+                "1": { "name": "keyword.coordinate" },
+                "2": { "name": "constant.numeric" }
+            }
         },
-        {
-            "name": "entity.name.function.draw-command.gerber",
-            "match": "(D01|D02|D03)"
+        "statement": {
+            "begin": "%",
+            "end": "%",
+            "beginCaptures": {
+                "0": { "name": "keyword.control" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword.control" }
+            },
+            "patterns": [
+                { "include": "#FS" },
+                { "include": "#MO" },
+                { "include": "#TF" },
+                { "include": "#TA" },
+                { "include": "#TO" },
+                { "include": "#TD" },
+                { "include": "#define_aperture" },
+                { "include": "#LP" },
+                { "include": "#LM" },
+                { "include": "#LR" },
+                { "include": "#LS" },
+                { "include": "#macro" },
+                { "include": "#aperture_block" },
+                { "include": "#step_and_repeat" },
+                { "include": "#end-of-expression" }
+            ]
         },
-        {
-            "name": "keyword.command.g.gerber",
-            "match": "(G01|G02|G03|G36|G37|G54|G55|G56|G70|G71|G74|G75|G90|G91)"
+        "FS": {
+            "match": "(FS)([LT][AI])(X)([0-6][0-6])(Y)([0-6][0-6])(?=(\\*))",
+            "captures": {
+                "1": { "name": "keyword.control" },
+                "2": { "name": "constant.character" },
+                "3": { "name": "keyword.control" },
+                "4": { "name": "constant.numeric" },
+                "5": { "name": "keyword.control" },
+                "6": { "name": "constant.numeric" }
+            }
         },
-        {
-            "name": "keyword.command.other.gerber",
-            "match": "(FS|AD|AM|LP|LM|LR|LS|AB|SR|OF|MO|IP)"
+        "MO": {
+            "match": "(MO)(MM|IN)",
+            "captures": {
+                "1": { "name": "keyword.control" },
+                "2": { "name": "constant.character" }
+            }
         },
-        {
-            "name": "constant.other.format.gerber",
-            "match": "(?<=(FS))([LT][IA])"
+        "comment": {
+            "begin": "G04",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                {
+                    "name": "comment.line",
+                    "match": "[^%*]*"
+                }
+            ],
+            "name": "comment"
         },
-        {
-            "name": "keyword.command.ad.aperture.name.gerber",
-            "match": "(?<=(ADD(0?[1-9][0-9]+)))([._a-zA-Z$][._a-zA-Z0-9]*)"
+        "attribute_comment": {
+            "begin": "(G04)\\s*(#@!)",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "1": { "name": "keyword" },
+                "2": { "name": "markup.bold" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#TF" },
+                { "include": "#TA" },
+                { "include": "#TO" },
+                { "include": "#TD" }
+            ],
+            "name": "markup.italic"
         },
-        {
-            "name": "keyword.command.coordinate.gerber",
-            "match": "(X|Y|I|J)(?=[0-9]{2,9})"
+        "define_aperture": {
+            "begin": "AD",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#aperture_identifier" },
+                { "include": "#aperture_specification" }
+            ]
         },
-        {
-            "name": "constant.numeric.coordinate.gerber",
-            "match": "(?<=(X|Y|I|J))([0-9]{1,11})"
+        "LP": {
+            "match": "(LP)([CD])(?=(\\*))",
+            "captures": {
+                "1": { "name": "keyword" },
+                "2": { "name": "constant.language.gerber" }
+            }
         },
-        {
-            "name": "constant.numeric.decimal.gerber",
+        "LM": {
+            "match": "(LM)(N|XY|Y|X)(?=(\\*))",
+            "captures": {
+                "1": { "name": "keyword" },
+                "2": { "name": "constant.language.gerber" }
+            }
+        },
+        "LR": {
+            "match": "(LR)([+-]?((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+)))(?=(\\*))",
+            "captures": {
+                "1": { "name": "keyword" },
+                "2": { "name": "constant.language.gerber" }
+            }
+        },
+        "LS": {
+            "match": "(LS)([+-]?((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+)))(?=(\\*))",
+            "captures": {
+                "1": { "name": "keyword" },
+                "2": { "name": "constant.language.gerber" }
+            }
+        },
+        "macro": {
+            "begin": "(AM)([._a-zA-Z$][._a-zA-Z0-9]*)(\\*)",
+            "end": "(?=(%))",
+            "beginCaptures": {
+                "1": { "name": "entity.name.type.macro" },
+                "2": { "name": "string" },
+                "3": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#macro_comment" },
+                { "include": "#variable_assignment" },
+                { "include": "#macro_primitive" },
+                { "include": "#end-of-expression" }
+            ]
+        },
+        "variable_assignment": {
+            "begin": "(\\$[0-9]+)\\s*",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "1": { "name": "entity.other.attribute-name" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "match": ",", "name": "punctuation.separator" },
+                { "match": "[-+x/=]\\)\\(", "name": "keyword.operator" },
+                { "match": "\\$[0-9]+", "name": "variable.name" },
+                { "include": "#decimal" },
+                { "include": "#integer" }
+            ]
+        },
+        "macro_primitive": {
+            "begin": "([1-9][0-9]?)",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "1": { "name": "keyword.primitive.code" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "match": ",", "name": "punctuation.separator" },
+                { "match": "[-+x/=]\\)\\(", "name": "keyword.operator" },
+                { "match": "\\$[0-9]+", "name": "variable.parameter" },
+                { "include": "#decimal" },
+                { "include": "#integer" }
+            ]
+        },
+        "macro_comment": {
+            "match": "(0)([^%*]*)(?=(\\*))",
+            "captures": {
+                "1": { "name": "keyword.primitive.code.comment" },
+                "2": { "name": "comment.macro" }
+            }
+        },
+        "aperture_block": {
+            "match": "(AB)(D[0]*[1-9][0-9]+)?(?=(\\*))",
+            "captures": {
+                "1": { "name": "entity.name.function.aperture_block" },
+                "2": { "name": "entity.name.type" }
+            }
+        },
+        "step_and_repeat": {
+            "begin": "SR",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "entity.name.function.step_and_repeat" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [{ "include": "#coordinate" }]
+        },
+        "TF": {
+            "begin": "TF",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#file_attribute_name" },
+                { "include": "#user_name" },
+                { "name": "punctuation.separator.field", "match": "," },
+                { "include": "#field" }
+            ]
+        },
+        "file_attribute_name": {
+            "name": "entity.other.attribute-name",
+            "match": "\\.Part|\\.FileFunction|\\.FilePolarity|\\.SameCoordinates|\\.CreationDate|\\.GenerationSoftware|\\.ProjectId|\\.MD5"
+        },
+        "TA": {
+            "begin": "TA",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#aperture_attribute_name" },
+                { "include": "#user_name" },
+                { "name": "punctuation.separator.field", "match": "," },
+                { "include": "#field" }
+            ]
+        },
+        "aperture_attribute_name": {
+            "name": "entity.other.attribute-name",
+            "match": "\\.AperFunction|\\.DrillTolerance|\\.FlashText"
+        },
+        "TO": {
+            "begin": "TO",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#object_attribute_name" },
+                { "include": "#user_name" },
+                { "name": "punctuation.separator.field", "match": "," },
+                { "include": "#field" }
+            ]
+        },
+        "object_attribute_name": {
+            "name": "entity.other.attribute-name",
+            "match": "\\.N|\\.P|\\.C|\\.CRot|\\.CMfr|\\.CMPN|\\.CVal|\\.CMnt|\\.CFtp|\\.CPgN|\\.CPgD|\\.CHgt|\\.CLbN|\\.CLbD|\\.CSup"
+        },
+        "TD": {
+            "begin": "TD",
+            "end": "(?=(\\*))",
+            "beginCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "endCaptures": {
+                "0": { "name": "keyword" }
+            },
+            "patterns": [
+                { "include": "#file_attribute_name" },
+                { "include": "#aperture_attribute_name" },
+                { "include": "#object_attribute_name" },
+                { "include": "#user_name" },
+                { "name": "punctuation.separator.field", "match": "," },
+                { "include": "#field" }
+            ]
+        },
+        "unsigned_integer": {
+            "name": "constant.numeric",
+            "match": "[0-9]+"
+        },
+        "positive_integer": {
+            "name": "constant.numeric",
+            "match": "[0-9]*[1-9][0-9]*"
+        },
+        "integer": {
+            "name": "constant.numeric",
+            "match": "[+-]?[0-9]+"
+        },
+        "unsigned_decimal": {
+            "name": "constant.numeric",
+            "match": "((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+))"
+        },
+        "decimal": {
+            "name": "constant.numeric",
             "match": "[+-]?((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+))"
         },
-        {
-            "name": "constant.character.polarity.gerber",
-            "match": "(?<=(LP))[DC]"
+        "aperture_identifier": {
+            "name": "entity.name.type",
+            "match": "D[0]*[1-9][0-9]+"
         },
-        {
-            "name": "constant.character.file.polarity.gerber",
-            "match": "(?<=(IP))(POS|NEG)"
+        "name": {
+            "name": "string",
+            "match": "[._a-zA-Z$][._a-zA-Z0-9]*"
         },
-        {
-            "name": "constant.character.unit.gerber",
-            "match": "(?<=(MO))(MM|IN)"
+        "user_name": {
+            "name": "string",
+            "match": "[_a-zA-Z$][._a-zA-Z0-9]*"
         },
-        {
-            "name": "entity.name.function.aperture.gerber",
-            "match": "D(0?[1-9][0-9]+)"
+        "string": {
+            "name": "string",
+            "match": "[^%*]*"
         },
-        {
-            "name": "entity.name.class.macro.gerber",
-            "match": "(?<=(%AM))([._a-zA-Z$][._a-zA-Z0-9]*)"
+        "field": {
+            "name": "string",
+            "match": "[^%*,]"
         },
-        {
-            "name": "keyword.control.end_of_file.gerber",
+        "end-of-expression": {
+            "name": "keyword",
+            "match": "\\*"
+        },
+        "end-of-file": {
+            "name": "keyword",
             "match": "(M02|M01|M00)"
         }
-    ]
+    }
 }

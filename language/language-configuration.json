@@ -2,15 +2,20 @@
     "comments": {
         "lineComment": "G04"
     },
-    "brackets": [["G36*", "G37*"]],
+    "brackets": [
+        ["(", ")"],
+        ["G36*", "G37*"]
+    ],
     // symbols that are auto closed when typing
     "autoClosingPairs": [
         ["%", "%"],
+        ["(", ")"],
         ["G36*", "G37*"]
     ],
     // symbols that can be used to surround a selection
     "surroundingPairs": [
         ["%", "%"],
+        ["(", ")"],
         ["G36*", "G37*"]
     ]
 }

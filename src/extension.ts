@@ -1,26 +1,253 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
+import { ExecuteCommandRequest, LanguageClient } from "vscode-languageclient/node";
+import {
+    registerLogger,
+    traceError,
+    traceLog,
+    traceVerbose,
+} from "./common/log/logging";
+import {
+    checkVersion,
+    getInterpreterDetails,
+    initializePython,
+    onDidChangePythonInterpreter,
+    resolveInterpreter,
+} from "./common/python";
+import { restartServer } from "./common/server";
+import {
+    checkIfConfigurationChanged,
+    getInterpreterFromSetting,
+    ISettings,
+} from "./common/settings";
+import { loadServerDefaults } from "./common/setup";
+import { getLSClientTraceLevel } from "./common/utilities";
+import {
+    createOutputChannel,
+    getConfiguration,
+    onDidChangeConfiguration,
+    registerCommand,
+} from "./common/vscodeapi";
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+const issueTracker = "https://github.com/argmaster/pygerber/issues";
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Activated "Gerber X3/X2 Format Support"!');
+let lsClient: LanguageClient | undefined;
+let restartInProgress = false;
+let restartQueued = false;
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	//let disposable = vscode.commands.registerCommand('typescript-example.helloWorld', () => {
-	//	// The code you place here will be executed every time your command is executed
-	//	// Display a message box to the user
-	//	vscode.window.showInformationMessage('Hello World from typescript-example!');
-	//});
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    // This is required to get server name and module. This should be
+    // the first thing that we do in this extension.
+    const serverInfo = loadServerDefaults();
+    const serverName = serverInfo.name;
+    const serverId = serverInfo.module;
 
-	//context.subscriptions.push(disposable);
+    // Setup logging
+    const outputChannel = createOutputChannel(serverName);
+    context.subscriptions.push(outputChannel, registerLogger(outputChannel));
+
+    const changeLogLevel = async (c: vscode.LogLevel, g: vscode.LogLevel) => {
+        const level = getLSClientTraceLevel(c, g);
+        await lsClient?.setTrace(level);
+    };
+
+    context.subscriptions.push(
+        outputChannel.onDidChangeLogLevel(async (e) => {
+            await changeLogLevel(e, vscode.env.logLevel);
+        }),
+        vscode.env.onDidChangeLogLevel(async (e) => {
+            await changeLogLevel(outputChannel.logLevel, e);
+        })
+    );
+
+    // Log Server information
+    traceLog(`Name: ${serverInfo.name}`);
+    traceLog(`Module: ${serverInfo.module}`);
+    traceVerbose(`Full Server Info: ${JSON.stringify(serverInfo)}`);
+
+    const { enable } = getConfiguration(serverId) as unknown as ISettings;
+    traceError(enable);
+    if (!enable) {
+        traceLog(
+            "Extension is disabled. To enable, change `gerber_x3_x2_format_support.enable` to `true` and restart VS Code."
+        );
+        context.subscriptions.push(
+            onDidChangeConfiguration((event) => {
+                if (event.affectsConfiguration("gerber_x3_x2_format_support.enable")) {
+                    traceLog(
+                        "To enable or disable Ruff after changing the `enable` setting, you must restart VS Code."
+                    );
+                }
+            })
+        );
+        return;
+    }
+
+    if (restartInProgress) {
+        if (!restartQueued) {
+            // Schedule a new restart after the current restart.
+            traceLog(
+                `Triggered ${serverName} restart while restart is in progress; queuing a restart.`
+            );
+            restartQueued = true;
+        }
+        return;
+    }
+
+    const runServer = async () => {
+        if (restartInProgress) {
+            if (!restartQueued) {
+                // Schedule a new restart after the current restart.
+                traceLog(
+                    `Triggered ${serverName} restart while restart is in progress; queuing a restart.`
+                );
+                restartQueued = true;
+            }
+            return;
+        }
+
+        restartInProgress = true;
+
+        const interpreter = getInterpreterFromSetting(serverId);
+        if (
+            interpreter &&
+            interpreter.length > 0 &&
+            checkVersion(await resolveInterpreter(interpreter))
+        ) {
+            traceVerbose(
+                `Using interpreter from ${
+                    serverInfo.module
+                }.interpreter: ${interpreter.join(" ")}`
+            );
+            lsClient = await restartServer(
+                serverId,
+                serverName,
+                outputChannel,
+                lsClient
+            );
+
+            restartInProgress = false;
+            if (restartQueued) {
+                restartQueued = false;
+                await runServer();
+            }
+
+            return;
+        }
+
+        const interpreterDetails = await getInterpreterDetails();
+        if (interpreterDetails.path) {
+            traceVerbose(
+                `Using interpreter from Python extension: ${interpreterDetails.path.join(
+                    " "
+                )}`
+            );
+            lsClient = await restartServer(
+                serverId,
+                serverName,
+                outputChannel,
+                lsClient
+            );
+
+            restartInProgress = false;
+            if (restartQueued) {
+                restartQueued = false;
+                await runServer();
+            }
+
+            return;
+        }
+
+        restartInProgress = false;
+
+        traceError(
+            "Python interpreter missing:\r\n" +
+                "Select python interpreter using the ms-python.python.\r\n" +
+                "Please use Python 3.8 or greater."
+        );
+    };
+
+    context.subscriptions.push(
+        onDidChangePythonInterpreter(async () => {
+            await runServer();
+        }),
+        onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
+            if (checkIfConfigurationChanged(e, serverId)) {
+                await runServer();
+            }
+        }),
+        registerCommand(`${serverId}.restart`, async () => {
+            await runServer();
+        }),
+        registerCommand(`${serverId}.executeAutofix`, async () => {
+            if (!lsClient) {
+                return;
+            }
+
+            const textEditor = vscode.window.activeTextEditor;
+            if (!textEditor) {
+                return;
+            }
+
+            const textDocument = {
+                uri: textEditor.document.uri.toString(),
+                version: textEditor.document.version,
+            };
+            const params = {
+                command: `${serverId}.applyAutofix`,
+                arguments: [textDocument],
+            };
+
+            await lsClient
+                .sendRequest(ExecuteCommandRequest.type, params)
+                .then(undefined, async () => {
+                    await vscode.window.showErrorMessage(
+                        "Failed to apply Ruff fixes to the document. Please consider opening an issue with steps to reproduce."
+                    );
+                });
+        }),
+        registerCommand(`${serverId}.executeOrganizeImports`, async () => {
+            if (!lsClient) {
+                return;
+            }
+
+            const textEditor = vscode.window.activeTextEditor;
+            if (!textEditor) {
+                return;
+            }
+
+            const textDocument = {
+                uri: textEditor.document.uri.toString(),
+                version: textEditor.document.version,
+            };
+            const params = {
+                command: `${serverId}.applyOrganizeImports`,
+                arguments: [textDocument],
+            };
+
+            await lsClient
+                .sendRequest(ExecuteCommandRequest.type, params)
+                .then(undefined, async () => {
+                    await vscode.window.showErrorMessage(
+                        `Failed to apply Ruff fixes to the document. Please consider opening an issue at ${issueTracker} with steps to reproduce.`
+                    );
+                });
+        })
+    );
+
+    setImmediate(async () => {
+        const interpreter = getInterpreterFromSetting(serverId);
+        if (interpreter === undefined || interpreter.length === 0) {
+            traceLog(`Python extension loading`);
+            await initializePython(context.subscriptions);
+            traceLog(`Python extension loaded`);
+        } else {
+            await runServer();
+        }
+    });
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+export async function deactivate(): Promise<void> {
+    if (lsClient) {
+        await lsClient.stop();
+    }
+}
