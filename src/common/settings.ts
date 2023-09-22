@@ -1,30 +1,31 @@
 import {
-    ConfigurationChangeEvent,
-    ConfigurationScope,
-    Uri,
-    WorkspaceConfiguration,
-    WorkspaceFolder,
+    ConfigurationChangeEvent, WorkspaceFolder
 } from "vscode";
-import { getInterpreterDetails } from "./python";
-import { getConfiguration, getWorkspaceFolders } from "./vscodeapi";
+import * as vscodeapi from "./vscodeapi";
 
-export interface ISettings {
-    cwd: string;
-    workspace: string;
+export interface ExtensionUserSettings {
     args: string[];
     interpreter: string[];
     enable: boolean;
 }
 
-export function getExtensionSettings(namespace: string): Promise<ISettings[]> {
-    return Promise.all(
-        getWorkspaceFolders().map((workspaceFolder) =>
-            getWorkspaceSettings(namespace, workspaceFolder)
-        )
-    );
+export async function getExtensionUserSettings(
+    namespace: string,
+    workspace: WorkspaceFolder
+): Promise<ExtensionUserSettings> {
+    const settings = vscodeapi.getConfiguration(namespace);
+
+    const args = settings.get<string[]>("args") ?? [];
+
+    let interpreter = settings.get<string[]>("interpreter") ?? [];
+    interpreter = interpreter.map((e) => resolveVariables(e, workspace));
+
+    const enable = settings.get<boolean>("enable") ?? true;
+
+    return { args, interpreter, enable };
 }
 
-function resolveVariables(value: string[], workspace?: WorkspaceFolder): string[] {
+function resolveVariables(value: string, workspace?: WorkspaceFolder): string {
     const substitutions = new Map<string, string>();
     const home = process.env.HOME || process.env.USERPROFILE;
     if (home) {
@@ -34,64 +35,16 @@ function resolveVariables(value: string[], workspace?: WorkspaceFolder): string[
         substitutions.set("${workspaceFolder}", workspace.uri.fsPath);
     }
     substitutions.set("${cwd}", process.cwd());
-    getWorkspaceFolders().forEach((w) => {
+    vscodeapi.getWorkspaceFolders().forEach((w) => {
         substitutions.set("${workspaceFolder:" + w.name + "}", w.uri.fsPath);
     });
 
-    return value.map((s) => {
-        for (const [key, value] of substitutions) {
-            s = s.replace(key, value);
-        }
-        return s;
-    });
-}
+    let temporaryString = value;
 
-export function getInterpreterFromSetting(
-    namespace: string,
-    scope?: ConfigurationScope
-) {
-    const config = getConfiguration(namespace, scope);
-    return config.get<string[]>("interpreter");
-}
-
-export async function getWorkspaceSettings(
-    namespace: string,
-    workspace: WorkspaceFolder
-): Promise<ISettings> {
-    const config = getConfiguration(namespace, workspace.uri);
-
-    let interpreter: string[] = getInterpreterFromSetting(namespace, workspace) ?? [];
-    if (interpreter.length === 0) {
-        interpreter = (await getInterpreterDetails(workspace.uri)).path ?? [];
+    for (const [key, value] of substitutions) {
+        temporaryString = temporaryString.replace(key, value);
     }
-
-    return {
-        cwd: workspace.uri.fsPath,
-        workspace: workspace.uri.toString(),
-        args: resolveVariables(config.get<string[]>("args") ?? [], workspace),
-        interpreter: resolveVariables(interpreter, workspace),
-        enable: config.get<boolean>("enable") ?? true,
-    };
-}
-
-function getGlobalValue<T>(
-    config: WorkspaceConfiguration,
-    key: string,
-    defaultValue: T
-): T {
-    const inspect = config.inspect<T>(key);
-    return inspect?.globalValue ?? inspect?.defaultValue ?? defaultValue;
-}
-
-export async function getGlobalSettings(namespace: string): Promise<ISettings> {
-    const config = getConfiguration(namespace);
-    return {
-        cwd: process.cwd(),
-        workspace: process.cwd(),
-        args: getGlobalValue<string[]>(config, "args", []),
-        interpreter: [],
-        enable: getGlobalValue<boolean>(config, "enable", true),
-    };
+    return temporaryString;
 }
 
 export function checkIfConfigurationChanged(

@@ -8,6 +8,7 @@ import {
     workspace,
     WorkspaceConfiguration,
     WorkspaceFolder,
+    env,
 } from "vscode";
 
 export function createOutputChannel(name: string): LogOutputChannel {
@@ -44,4 +45,9 @@ export function getWorkspaceFolders(): readonly WorkspaceFolder[] {
 
 export function getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined {
     return workspace.getWorkspaceFolder(uri);
+}
+
+export async function openUrlInWebBrowser(url: string) {
+    const uri = Uri.parse(url);
+    env.openExternal(uri);
 }

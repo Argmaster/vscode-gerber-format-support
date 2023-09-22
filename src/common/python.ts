@@ -1,11 +1,10 @@
 import {
-    commands,
     Disposable,
     Event,
     EventEmitter,
     extensions,
     Uri,
-    WorkspaceFolder,
+    WorkspaceFolder
 } from "vscode";
 import { traceError, traceLog } from "./log/logging";
 
@@ -285,11 +284,6 @@ export async function getInterpreterDetails(
     return { path: undefined, resource };
 }
 
-export async function runPythonExtensionCommand(command: string, ...rest: any[]) {
-    await activateExtension();
-    return await commands.executeCommand(command, ...rest);
-}
-
 export function checkVersion(resolved: ResolvedEnvironment | undefined): boolean {
     const version = resolved?.version;
     if (version?.major === 3 && version?.minor >= 8) {
@@ -299,4 +293,33 @@ export function checkVersion(resolved: ResolvedEnvironment | undefined): boolean
     traceError(`Selected python path: ${resolved?.executable.uri?.fsPath}`);
     traceError("Supported versions are 3.8 and above.");
     return false;
+}
+
+export type IsInterpreterGood = {
+    isGood: boolean;
+    path: string;
+    environment?: ResolvedEnvironment;
+};
+
+export async function isInterpreterGood(
+    interpreter: string[] | undefined
+): Promise<IsInterpreterGood> {
+    if (interpreter && interpreter.length > 0) {
+        const environment = await resolveInterpreter(interpreter);
+        if (checkVersion(environment)) {
+            const path = environment?.executable.uri?.fsPath;
+            if (path) {
+                return {
+                    isGood: true,
+                    path: path,
+                    environment: environment,
+                };
+            }
+        }
+    }
+
+    return {
+        isGood: false,
+        path: "",
+    };
 }

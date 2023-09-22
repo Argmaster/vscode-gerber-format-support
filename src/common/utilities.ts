@@ -2,7 +2,12 @@ import * as fs from "fs-extra";
 import * as path from "path";
 import { LogLevel, Uri, WorkspaceFolder } from "vscode";
 import { Trace } from "vscode-jsonrpc/node";
-import { getWorkspaceFolders } from "./vscodeapi";
+import * as vscodeapi from "./vscodeapi";
+import { exec } from "child_process";
+import { integer } from "vscode-languageclient";
+import { traceLog } from "./log/logging";
+import * as vscode from "vscode";
+import { LanguageServerOptions } from "./server";
 
 function logLevelToTrace(logLevel: LogLevel): Trace {
     switch (logLevel) {
@@ -37,8 +42,8 @@ export function getLSClientTraceLevel(
     return level;
 }
 
-export async function getProjectRoot(): Promise<WorkspaceFolder> {
-    const workspaces: readonly WorkspaceFolder[] = getWorkspaceFolders();
+export async function getWorkspaceFolder(): Promise<WorkspaceFolder> {
+    const workspaces: readonly WorkspaceFolder[] = vscodeapi.getWorkspaceFolders();
     if (workspaces.length === 0) {
         return {
             uri: Uri.file(process.cwd()),
@@ -70,4 +75,65 @@ export async function getProjectRoot(): Promise<WorkspaceFolder> {
         }
         return rootWorkspace;
     }
+}
+
+export type CommandResult = {
+    code: integer;
+    stdout: string;
+    stderr: string;
+};
+
+export async function executeCommand(command: string): Promise<CommandResult> {
+    return new Promise((resolve, reject) => {
+        exec(command, (error, stdout, stderr) => {
+            const code = error?.code ?? 0;
+
+            traceLog(`   cmd:   ${command}`);
+            traceLog(`  code:   ${code}`);
+            traceLog(`stdout:   ${stdout}`);
+            traceLog(`stderr:   ${stderr}`);
+
+            resolve({ code, stdout, stderr });
+        });
+    });
+}
+
+export async function installPyGerberAutomatically(options: LanguageServerOptions) {
+    vscode.window.withProgress(
+        {
+            title: "Installing PyGerber with Language Server.",
+            location: vscode.ProgressLocation.Notification,
+        },
+        async () => {
+            const cmd = [
+                options.interpreter,
+                "-m",
+                "pip",
+                "install",
+                "'pygerber[language_server]>=2.1.0'",
+                "--no-cache",
+            ].join(" ");
+
+            const { code, stdout, stderr } = await executeCommand(cmd);
+
+            if (code === 0) {
+                const re = /Successfully installed pygerber-(.*)(\s|$)/;
+                const result = re.exec(stdout);
+                const version = result?.[1];
+
+                vscode.window.showInformationMessage(
+                    `Successfully installed PyGerber ${version}`
+                );
+            } else {
+                vscode.window.showErrorMessage(
+                    `PyGerber installation failed. (${code})`
+                );
+            }
+            return { message: "", increment: 100 };
+        }
+    );
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }

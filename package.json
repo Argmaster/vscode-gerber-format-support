@@ -154,8 +154,8 @@
             }
         }
     },
-    "serverInfo": {
-        "name": "Gerber Language Server",
-        "module": "gerber_x3_x2_format_support"
+    "extensionStaticSettings": {
+        "languageServerName": "Gerber Language Server",
+        "settingsNamespace": "gerber_x3_x2_format_support"
     }
 }

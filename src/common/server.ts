@@ -1,5 +1,4 @@
-import * as fsapi from "fs-extra";
-import { Disposable, env, LogOutputChannel } from "vscode";
+import * as vscode from "vscode";
 import { State } from "vscode-languageclient";
 import {
     LanguageClient,
@@ -9,33 +8,34 @@ import {
     TransportKind,
 } from "vscode-languageclient/node";
 import { traceError, traceInfo, traceVerbose } from "./log/logging";
+import { ExtensionUserSettings } from "./settings";
 import {
-    getExtensionSettings,
-    getGlobalSettings,
-    getWorkspaceSettings,
-    ISettings,
-} from "./settings";
-import { getLSClientTraceLevel, getProjectRoot } from "./utilities";
-import { isVirtualWorkspace } from "./vscodeapi";
+    executeCommand,
+    getLSClientTraceLevel,
+    installPyGerberAutomatically,
+} from "./utilities";
+import * as vscodeapi from "./vscodeapi";
+import { ExtensionStaticSettings } from "./setup";
+import { INSTALLATION_GUIDE_URL } from "./constants";
 
-export type IInitOptions = { settings: ISettings[]; globalSettings: ISettings };
+export type LanguageServerOptions = {
+    interpreter: string;
+    cwd: string;
+    staticSettings: ExtensionStaticSettings;
+    userSettings: ExtensionUserSettings;
+    outputChannel: vscode.LogOutputChannel;
+};
 
-async function createServer(
-    settings: ISettings,
-    serverId: string,
-    serverName: string,
-    outputChannel: LogOutputChannel,
-    initializationOptions: IInitOptions
-): Promise<LanguageClient> {
-    const command = settings.interpreter[0];
-    const cwd = settings.cwd;
-
-    // Set debugger path needed for debugging python code.
+async function createServer(options: LanguageServerOptions): Promise<LanguageClient> {
+    const command = options.interpreter;
+    const cwd = options.cwd;
     const newEnv = { ...process.env };
 
-    const args = settings.interpreter
-        .slice(1)
-        .concat(["-m", "pygerber.gerberx3.language_server"]);
+    const args = [
+        "-m",
+        "pygerber.gerberx3.language_server",
+        ...options.userSettings.args,
+    ];
     traceInfo(`Server run command: ${[command, ...args].join(" ")}`);
 
     const serverOptions: ServerOptions = {
@@ -48,26 +48,33 @@ async function createServer(
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
         // Register the server for python documents
-        documentSelector: isVirtualWorkspace()
+        documentSelector: vscodeapi.isVirtualWorkspace()
             ? [{ language: "gerber" }]
             : [
                   { scheme: "file", language: "gerber" },
                   { scheme: "untitled", language: "gerber" },
               ],
-        outputChannel: outputChannel,
-        traceOutputChannel: outputChannel,
+        outputChannel: options.outputChannel,
+        traceOutputChannel: options.outputChannel,
         revealOutputChannelOn: RevealOutputChannelOn.Never,
-        initializationOptions,
+        markdown: {
+            isTrusted: true,
+            supportHtml: true,
+        },
     };
 
-    return new LanguageClient(serverId, serverName, serverOptions, clientOptions);
+    return new LanguageClient(
+        options.staticSettings.settingsNamespace,
+        options.staticSettings.languageServerName,
+        serverOptions,
+        clientOptions
+    );
 }
 
-let _disposables: Disposable[] = [];
+let _disposables: vscode.Disposable[] = [];
+
 export async function restartServer(
-    serverId: string,
-    serverName: string,
-    outputChannel: LogOutputChannel,
+    options: LanguageServerOptions,
     lsClient?: LanguageClient
 ): Promise<LanguageClient | undefined> {
     if (lsClient) {
@@ -76,20 +83,10 @@ export async function restartServer(
         _disposables.forEach((d) => d.dispose());
         _disposables = [];
     }
-    const projectRoot = await getProjectRoot();
-    const workspaceSetting = await getWorkspaceSettings(serverId, projectRoot);
 
-    const newLSClient = await createServer(
-        workspaceSetting,
-        serverId,
-        serverName,
-        outputChannel,
-        {
-            settings: await getExtensionSettings(serverId),
-            globalSettings: await getGlobalSettings(serverId),
-        }
-    );
+    const newLSClient = await createServer(options);
     traceInfo(`Server: Start requested.`);
+
     _disposables.push(
         newLSClient.onDidChangeState((e) => {
             switch (e.newState) {
@@ -105,6 +102,7 @@ export async function restartServer(
             }
         })
     );
+
     try {
         await newLSClient.start();
     } catch (ex) {
@@ -112,7 +110,101 @@ export async function restartServer(
         return undefined;
     }
 
-    const level = getLSClientTraceLevel(outputChannel.logLevel, env.logLevel);
+    const level = getLSClientTraceLevel(
+        options.outputChannel.logLevel,
+        vscode.env.logLevel
+    );
     await newLSClient.setTrace(level);
     return newLSClient;
+}
+
+export async function isPyGerberLanguageServerAvailable(
+    options: LanguageServerOptions
+): Promise<boolean> {
+    const cmd = [
+        options.interpreter,
+        "-m",
+        "pygerber",
+        "is-language-server-available",
+    ].join(" ");
+
+    const { code, stdout, stderr } = await executeCommand(cmd);
+
+    if (code === 127) {
+        vscode.window
+            .showErrorMessage(
+                "Python interpreter not found. Select valid Python interpreter.",
+                "Select Interpreter",
+                "Open installation guide",
+                "Ignore"
+            )
+            .then((result) => {
+                switch (result) {
+                    case "Select Interpreter":
+                        vscode.commands.executeCommand("python.setInterpreter");
+                        break;
+
+                    case "Open installation guide":
+                        vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
+                        break;
+
+                    default:
+                        break;
+                }
+            });
+    } else {
+        const fullOutput = `${stdout} ${stderr}`;
+
+        if (fullOutput.includes("Language server is available.")) {
+            return true;
+        } else if (fullOutput.includes("Language server is not available.")) {
+            vscode.window
+                .showErrorMessage(
+                    "PyGerber Language Server extension is not installed.",
+                    "Open installation guide",
+                    "Install automatically",
+                    "Ignore"
+                )
+                .then((result) => {
+                    switch (result) {
+                        case "Open installation guide":
+                            vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
+                            break;
+
+                        case "Install automatically":
+                            installPyGerberAutomatically(options);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+        } else if (fullOutput.includes("No module named pygerber")) {
+            vscode.window
+                .showErrorMessage(
+                    "PyGerber library is not available.",
+                    "Open installation guide",
+                    "Install automatically",
+                    "Ignore"
+                )
+                .then((result) => {
+                    switch (result) {
+                        case "Open installation guide":
+                            vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
+                            break;
+
+                        case "Install automatically":
+                            installPyGerberAutomatically(options);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+        } else {
+            vscode.window.showErrorMessage("Unexpected error!");
+        }
+    }
+
+    return false;
 }
