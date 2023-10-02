@@ -5,9 +5,12 @@ import { Trace } from "vscode-jsonrpc/node";
 import * as vscodeapi from "./vscodeapi";
 import { exec } from "child_process";
 import { integer } from "vscode-languageclient";
-import { traceLog } from "./log/logging";
+import { traceLog, traceVerbose } from "./log/logging";
 import * as vscode from "vscode";
 import { LanguageServerOptions } from "./server";
+import { ExtensionUserSettings, getExtensionUserSettings } from "./settings";
+import { isInterpreterGood, getInterpreterDetails } from "./python";
+import { ExtensionStaticSettings, loadExtensionStaticSettings } from "./setup";
 
 function logLevelToTrace(logLevel: LogLevel): Trace {
     switch (logLevel) {
@@ -134,6 +137,90 @@ export async function installPyGerberAutomatically(options: LanguageServerOption
     );
 }
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function renderGerberFile() {
+    const extensionStaticSettings = loadExtensionStaticSettings();
+    const workspace = await getWorkspaceFolder();
+    const userSettings = await getExtensionUserSettings(
+        extensionStaticSettings.settingsNamespace,
+        workspace
+    );
+    let interpreterPath = await getInterpreterPath(
+        userSettings,
+        extensionStaticSettings
+    );
+    const editor = vscode.window.activeTextEditor;
+    const filePath = editor?.document.uri.fsPath;
+
+    if (filePath === undefined) {
+        vscode.window.showErrorMessage("No file selected.");
+        return;
+    }
+
+    let outputFilePath =
+        filePath.split(".").slice(0, -1).join(".") + userSettings.imageFormat;
+
+    vscode.window.withProgress(
+        {
+            title: `Rendering Gerber file "${filePath}".`,
+            location: vscode.ProgressLocation.Notification,
+        },
+        async () => {
+            const cmd = [
+                interpreterPath,
+                "-m",
+                "pygerber",
+                "raster-2d",
+                filePath,
+                "--style",
+                userSettings.layerStyle,
+                "--output",
+                outputFilePath,
+                "--dpi",
+                userSettings.renderDpi,
+            ].join(" ");
+
+            const { code, stdout, stderr } = await executeCommand(cmd);
+
+            if (code === 0) {
+                vscode.window.showInformationMessage(
+                    `Successfully rendered file "${filePath}", see result in "${outputFilePath}".`
+                );
+            } else {
+                vscode.window.showErrorMessage(`Failed to render file "${filePath}".`);
+            }
+            return { message: "", increment: 100 };
+        }
+    );
+}
+
+export async function getInterpreterPath(
+    userSettings: ExtensionUserSettings,
+    extensionStaticSettings: ExtensionStaticSettings
+) {
+    let interpreterPath: string = "";
+
+    const interpreterStats = await isInterpreterGood(userSettings.interpreter);
+    if (interpreterStats.isGood) {
+        traceVerbose(
+            `Using interpreter from ${
+                extensionStaticSettings.settingsNamespace
+            }.interpreter: ${(await interpreterStats).path}`
+        );
+        interpreterPath = interpreterStats.path;
+    }
+
+    const interpreterDetails = await getInterpreterDetails();
+    if (interpreterDetails.path) {
+        traceVerbose(
+            `Using interpreter from Python extension: ${interpreterDetails.path.join(
+                " "
+            )}`
+        );
+        interpreterPath = interpreterDetails.path[0];
+    }
+    return interpreterPath;
 }

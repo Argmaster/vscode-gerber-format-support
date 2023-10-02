@@ -11,7 +11,19 @@
         { "include": "#draw_operations" },
         { "include": "#aperture_identifier" },
         { "include": "#end-of-expression" },
-        { "include": "#end-of-file" }
+        { "include": "#end-of-file" },
+        {
+            "include": "#macro_comment",
+            "comment": "Included only to allow coloring of standalone macro primitives."
+        },
+        {
+            "include": "#variable_assignment",
+            "comment": "Included only to allow coloring of standalone macro primitives."
+        },
+        {
+            "include": "#macro_primitive",
+            "comment": "Included only to allow coloring of standalone macro primitives."
+        }
     ],
     "repository": {
         "g_code": {
@@ -139,35 +151,35 @@
             "match": "(LP)([CD])(?=(\\*))",
             "captures": {
                 "1": { "name": "keyword" },
-                "2": { "name": "constant.language.gerber" }
+                "2": { "name": "constant.language" }
             }
         },
         "LM": {
             "match": "(LM)(N|XY|Y|X)(?=(\\*))",
             "captures": {
                 "1": { "name": "keyword" },
-                "2": { "name": "constant.language.gerber" }
+                "2": { "name": "constant.language" }
             }
         },
         "LR": {
             "match": "(LR)([+-]?((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+)))(?=(\\*))",
             "captures": {
                 "1": { "name": "keyword" },
-                "2": { "name": "constant.language.gerber" }
+                "2": { "name": "constant.language" }
             }
         },
         "LS": {
             "match": "(LS)([+-]?((([0-9]+)(\\.[0-9]*)?)|(\\.[0-9]+)))(?=(\\*))",
             "captures": {
                 "1": { "name": "keyword" },
-                "2": { "name": "constant.language.gerber" }
+                "2": { "name": "constant.language" }
             }
         },
         "macro": {
             "begin": "(AM)([._a-zA-Z$][._a-zA-Z0-9]*)(\\*)",
             "end": "(?=(%))",
             "beginCaptures": {
-                "1": { "name": "entity.name.type.macro" },
+                "1": { "name": "keyword" },
                 "2": { "name": "string" },
                 "3": { "name": "keyword" }
             },

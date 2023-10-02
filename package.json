@@ -116,6 +116,10 @@
                     ".gbp"
                 ],
                 "configuration": "./language/language-configuration.json"
+            },
+            {
+                "id": "gerber-macro",
+                "configuration": "./language/language-configuration.json"
             }
         ],
         "grammars": [
@@ -123,8 +127,32 @@
                 "language": "gerber",
                 "scopeName": "source.gerber",
                 "path": "./language/syntaxes/gerber.tmLanguage.json"
+            },
+            {
+                "language": "gerber-macro",
+                "scopeName": "source.gerber-macro",
+                "path": "./language/syntaxes/gerber-macro.tmLanguage.json"
             }
         ],
+        "commands": [
+            {
+                "command": "gerber_x3_x2_format_support.restart",
+                "title": "Gerber: Restart language server"
+            },
+            {
+                "command": "gerber_x3_x2_format_support.render",
+                "title": "Gerber: Render file"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "group": "gerber",
+                    "command": "gerber_x3_x2_format_support.render",
+                    "when": "resourceLangId == gerber"
+                }
+            ]
+        },
         "configuration": {
             "properties": {
                 "gerber_x3_x2_format_support.args": {
@@ -147,9 +175,43 @@
                 },
                 "gerber_x3_x2_format_support.enable": {
                     "default": true,
-                    "markdownDescription": "Whether to enable the Ruff extension.",
+                    "markdownDescription": "Whether to enable the PyGerber language server.",
                     "scope": "window",
-                    "type": "boolean"
+                    "type": "boolean",
+                    "title": "Enable Language Server"
+                },
+                "gerber_x3_x2_format_support.renderDpi": {
+                    "default": 1000,
+                    "markdownDescription": "DPI of rendered images.",
+                    "scope": "resource",
+                    "type": "integer",
+                    "title": "Render DPI"
+                },
+                "gerber_x3_x2_format_support.imageFormat": {
+                    "default": ".png",
+                    "markdownDescription": "Format of rendered images.",
+                    "scope": "resource",
+                    "type": "string",
+                    "title": "Image Format"
+                },
+                "gerber_x3_x2_format_support.layerStyle": {
+                    "default": "copper_alpha",
+                    "markdownDescription": "Style of rendered images.",
+                    "scope": "resource",
+                    "type": "string",
+                    "title": "Layer styles",
+                    "enum": [
+                        "silk",
+                        "silk_alpha",
+                        "copper",
+                        "copper_alpha",
+                        "paste_mask",
+                        "paste_mask_alpha",
+                        "solder_mask",
+                        "solder_mask_alpha",
+                        "default_grayscale",
+                        "debug_1"
+                    ]
                 }
             }
         }

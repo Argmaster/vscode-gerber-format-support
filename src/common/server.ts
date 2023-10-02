@@ -61,6 +61,9 @@ async function createServer(options: LanguageServerOptions): Promise<LanguageCli
             isTrusted: true,
             supportHtml: true,
         },
+        connectionOptions: {
+            maxRestartCount: 0,
+        },
     };
 
     return new LanguageClient(
@@ -77,8 +80,8 @@ export async function restartServer(
     options: LanguageServerOptions,
     lsClient?: LanguageClient
 ): Promise<LanguageClient | undefined> {
-    if (lsClient) {
-        traceInfo(`Server: Stop requested`);
+    if (lsClient && lsClient.state !== State.Stopped) {
+        traceInfo(`Gerber Language Server: Stop requested`);
         await lsClient.stop();
         _disposables.forEach((d) => d.dispose());
         _disposables = [];
@@ -105,17 +108,18 @@ export async function restartServer(
 
     try {
         await newLSClient.start();
+
+        const level = getLSClientTraceLevel(
+            options.outputChannel.logLevel,
+            vscode.env.logLevel
+        );
+        await newLSClient.setTrace(level);
+
+        return newLSClient;
     } catch (ex) {
         traceError(`Server: Start failed: ${ex}`);
         return undefined;
     }
-
-    const level = getLSClientTraceLevel(
-        options.outputChannel.logLevel,
-        vscode.env.logLevel
-    );
-    await newLSClient.setTrace(level);
-    return newLSClient;
 }
 
 export async function isPyGerberLanguageServerAvailable(

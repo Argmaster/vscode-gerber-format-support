@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { LanguageClient } from "vscode-languageclient/node";
+import { LanguageClient, State } from "vscode-languageclient/node";
 import {
     registerLogger,
     traceError,
@@ -7,7 +7,6 @@ import {
     traceVerbose,
 } from "./common/log/logging";
 import {
-    getInterpreterDetails,
     initializePython,
     isInterpreterGood,
     onDidChangePythonInterpreter,
@@ -23,19 +22,34 @@ import {
     getExtensionUserSettings,
 } from "./common/settings";
 import { ExtensionStaticSettings, loadExtensionStaticSettings } from "./common/setup";
-import { getLSClientTraceLevel, getWorkspaceFolder } from "./common/utilities";
+import {
+    getLSClientTraceLevel,
+    getWorkspaceFolder,
+    renderGerberFile,
+    sleep,
+} from "./common/utilities";
 import {
     createOutputChannel,
     getConfiguration,
     onDidChangeConfiguration,
     registerCommand,
 } from "./common/vscodeapi";
+import { getInterpreterPath } from "./common/utilities";
 
 const issueTracker = "https://github.com/argmaster/pygerber/issues";
 
+enum StartupState {
+    preStartup,
+    primary,
+    primaryInProgress,
+    primaryFailed,
+    restartInProgress,
+    secondary,
+}
+
 let lsClient: LanguageClient | undefined;
-let restartInProgress = false;
 let restartQueued = false;
+let startupState = StartupState.preStartup;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const extensionStaticSettings = loadExtensionStaticSettings();
@@ -53,7 +67,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { enable } = getConfiguration(
         settingsNamespace
     ) as unknown as ExtensionUserSettings;
+
     traceError(enable);
+
     if (!enable) {
         traceLog(
             "Extension is disabled. To enable, change `gerber_x3_x2_format_support.enable` to `true` and restart VS Code."
@@ -70,108 +86,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
     }
 
-    if (restartInProgress) {
-        if (!restartQueued) {
-            // Schedule a new restart after the current restart.
-            traceLog(
-                `Triggered ${languageServerName} restart while restart is in progress; queuing a restart.`
-            );
-            restartQueued = true;
-        }
-        return;
-    }
-
     const runServer = async () => {
-        if (restartInProgress) {
-            if (!restartQueued) {
-                // Schedule a new restart after the current restart.
+        switch (startupState) {
+            case StartupState.preStartup:
+                traceLog(`Language server ${languageServerName} not prepared.`);
+                return;
+
+            case StartupState.primaryInProgress:
                 traceLog(
-                    `Triggered ${languageServerName} restart while restart is in progress; queuing a restart.`
+                    `Primary startup of ${languageServerName} already in progress.`
                 );
-                restartQueued = true;
-            }
-            return;
-        }
+                return;
 
-        restartInProgress = true;
+            case StartupState.primary:
+                traceLog(`Primary startup of ${languageServerName}.`);
+                startupState = StartupState.primaryInProgress;
+                break;
 
-        const onLanguageServerFailed = async () => {
-            const result = await vscode.window.showErrorMessage(
-                "Failed to start Gerber language server.",
-                "Retry",
-                "Disable language server",
-                "Select interpreter"
-            );
-            switch (result) {
-                case "Retry":
-                    await runServer();
-                    break;
+            case StartupState.primaryFailed:
+                traceLog(`Primary startup of ${languageServerName} failed, aborting.`);
+                return;
 
-                case "Disable language server":
-                    vscode.commands.executeCommand(
-                        "workbench.action.openSettings",
-                        "gerber_x3_x2_format_support.enable"
+            case StartupState.restartInProgress:
+                if (!restartQueued) {
+                    // Schedule a new restart after the current restart.
+                    traceLog(
+                        `Triggered ${languageServerName} restart while restart is in progress; queuing a restart.`
                     );
+                    restartQueued = true;
+                }
+                return;
 
-                case "Select interpreter":
-                    vscode.commands.executeCommand("python.setInterpreter");
-                    break;
+            case StartupState.secondary:
+                traceLog(`Secondary startup of ${languageServerName}.`);
+                break;
 
-                default:
-                    break;
-            }
-        };
+            default:
+                return;
+        }
 
         const workspace = await getWorkspaceFolder();
         const userSettings = await getExtensionUserSettings(
             extensionStaticSettings.settingsNamespace,
             workspace
         );
+        let interpreterPath = await getInterpreterPath(
+            userSettings,
+            extensionStaticSettings
+        );
 
-        let interpreterPath = "";
-        let extraArgs = [];
-
-        const interpreterStats = await isInterpreterGood(userSettings.interpreter);
-        if (interpreterStats.isGood) {
-            traceVerbose(
-                `Using interpreter from ${
-                    extensionStaticSettings.settingsNamespace
-                }.interpreter: ${(await interpreterStats).path}`
-            );
-            interpreterPath = interpreterStats.path;
-        }
-
-        const interpreterDetails = await getInterpreterDetails();
-        if (interpreterDetails.path) {
-            traceVerbose(
-                `Using interpreter from Python extension: ${interpreterDetails.path.join(
-                    " "
-                )}`
-            );
-            interpreterPath = interpreterDetails.path[0];
-            extraArgs = interpreterDetails.path.slice(1);
-        }
-
-        if (interpreterPath) {
-            const languageServerOptions: LanguageServerOptions = {
-                interpreter: interpreterPath,
-                cwd: workspace.uri.fsPath,
-                outputChannel: outputChannel,
-                staticSettings: extensionStaticSettings,
-                userSettings: userSettings,
-            };
-            if (await isPyGerberLanguageServerAvailable(languageServerOptions)) {
-                lsClient = await restartServer(languageServerOptions, lsClient);
-
-                restartInProgress = false;
-                if (restartQueued) {
-                    restartQueued = false;
-                    await runServer();
-                }
-
-                return;
-            }
-        } else {
+        if (!interpreterPath) {
             const message =
                 "Python interpreter missing:\r\n" +
                 "Select python interpreter using the ms-python.python.\r\n" +
@@ -179,8 +143,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
             traceError(message);
             vscode.window.showErrorMessage(message);
+            return;
         }
-        restartInProgress = false;
+        const languageServerOptions: LanguageServerOptions = {
+            interpreter: interpreterPath,
+            cwd: workspace.uri.fsPath,
+            outputChannel: outputChannel,
+            staticSettings: extensionStaticSettings,
+            userSettings: userSettings,
+        };
+        if (await isPyGerberLanguageServerAvailable(languageServerOptions)) {
+            lsClient = await restartServer(languageServerOptions, lsClient);
+
+            if (lsClient === undefined || lsClient.state === State.Stopped) {
+                startupState = StartupState.primaryFailed;
+                traceLog(`${languageServerName} startup failed.`);
+            } else {
+                startupState = StartupState.secondary;
+            }
+
+            if (restartQueued) {
+                restartQueued = false;
+                await runServer();
+            }
+
+            return;
+        }
     };
 
     context.subscriptions.push(
@@ -193,7 +181,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         }),
         registerCommand(`${settingsNamespace}.restart`, async () => {
+            if (startupState === StartupState.primaryFailed) {
+                startupState = StartupState.primary;
+            }
             await runServer();
+        }),
+        registerCommand(`${settingsNamespace}.render`, async () => {
+            await renderGerberFile();
         })
     );
 
@@ -211,7 +205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await initializePython(context.subscriptions);
             traceLog(`Python extension loaded`);
         }
-
+        startupState = StartupState.primary;
         await runServer();
     });
 }
