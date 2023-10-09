@@ -21,6 +21,7 @@
         "Pipenv",
         "Pyenv",
         "pygerber",
+        "PYTHONPATH",
         "Venv",
         "vscodeapi"
     ],

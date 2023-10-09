@@ -13,6 +13,8 @@ import {
 } from "./common/python";
 import {
     LanguageServerOptions,
+    PyGerberLanguageServerStatus,
+    handleNegativePyGerberLanguageServerStatus as handleNegativePyGerberLanguageServerStatus,
     isPyGerberLanguageServerAvailable,
     restartServer,
 } from "./common/server";
@@ -26,7 +28,6 @@ import {
     getLSClientTraceLevel,
     getWorkspaceFolder,
     renderGerberFile,
-    sleep,
 } from "./common/utilities";
 import {
     createOutputChannel,
@@ -56,6 +57,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const languageServerName = extensionStaticSettings.languageServerName;
     const settingsNamespace = extensionStaticSettings.settingsNamespace;
 
+    const extensionDirectory = context.extensionPath;
+
     // Setup logging
     const outputChannel = configureOutputChannel(
         context,
@@ -67,8 +70,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { enable } = getConfiguration(
         settingsNamespace
     ) as unknown as ExtensionUserSettings;
-
-    traceError(enable);
 
     if (!enable) {
         traceLog(
@@ -130,7 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             extensionStaticSettings.settingsNamespace,
             workspace
         );
-        let interpreterPath = await getInterpreterPath(
+        const interpreterPath = await getInterpreterPath(
             userSettings,
             extensionStaticSettings
         );
@@ -151,24 +152,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             outputChannel: outputChannel,
             staticSettings: extensionStaticSettings,
             userSettings: userSettings,
+            extensionDirectory: extensionDirectory,
         };
-        if (await isPyGerberLanguageServerAvailable(languageServerOptions)) {
-            lsClient = await restartServer(languageServerOptions, lsClient);
 
-            if (lsClient === undefined || lsClient.state === State.Stopped) {
-                startupState = StartupState.primaryFailed;
-                traceLog(`${languageServerName} startup failed.`);
-            } else {
-                startupState = StartupState.secondary;
+        const languageServerStatus = await isPyGerberLanguageServerAvailable(
+            languageServerOptions
+        );
+
+        switch (languageServerStatus) {
+            case PyGerberLanguageServerStatus.good: {
+                lsClient = await restartServer(languageServerOptions, lsClient);
+
+                if (lsClient === undefined || lsClient.state === State.Stopped) {
+                    startupState = StartupState.primaryFailed;
+                    traceLog(`${languageServerName} startup failed.`);
+                } else {
+                    startupState = StartupState.secondary;
+                }
+
+                if (restartQueued) {
+                    restartQueued = false;
+                    await runServer();
+                }
+                break;
             }
 
-            if (restartQueued) {
-                restartQueued = false;
-                await runServer();
+            default: {
+                handleNegativePyGerberLanguageServerStatus(
+                    languageServerStatus,
+                    languageServerOptions
+                );
+                break;
             }
-
-            return;
         }
+        return;
     };
 
     context.subscriptions.push(
@@ -187,7 +204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await runServer();
         }),
         registerCommand(`${settingsNamespace}.render`, async () => {
-            await renderGerberFile();
+            await renderGerberFile(extensionDirectory);
         })
     );
 

@@ -24,12 +24,16 @@ export type LanguageServerOptions = {
     staticSettings: ExtensionStaticSettings;
     userSettings: ExtensionUserSettings;
     outputChannel: vscode.LogOutputChannel;
+    extensionDirectory: string;
 };
 
 async function createServer(options: LanguageServerOptions): Promise<LanguageClient> {
     const command = options.interpreter;
     const cwd = options.cwd;
-    const newEnv = { ...process.env };
+    const newEnv = {
+        ...process.env,
+        PYTHONPATH: `${options.extensionDirectory}/.pygerber`, // eslint-disable-line @typescript-eslint/naming-convention
+    };
 
     const args = [
         "-m",
@@ -122,9 +126,17 @@ export async function restartServer(
     }
 }
 
+export enum PyGerberLanguageServerStatus {
+    interpreterNotFound,
+    languageServerNotFound,
+    pyGerberNotInstalled,
+    good,
+    unexpectedError,
+}
+
 export async function isPyGerberLanguageServerAvailable(
     options: LanguageServerOptions
-): Promise<boolean> {
+): Promise<PyGerberLanguageServerStatus> {
     const cmd = [
         options.interpreter,
         "-m",
@@ -132,36 +144,60 @@ export async function isPyGerberLanguageServerAvailable(
         "is-language-server-available",
     ].join(" ");
 
-    const { code, stdout, stderr } = await executeCommand(cmd);
+    const { code, stdout, stderr } = await executeCommand(cmd, {
+        env: {
+            PYTHONPATH: `${options.extensionDirectory}/.pygerber`, // eslint-disable-line @typescript-eslint/naming-convention
+        },
+    });
 
     if (code === 127) {
-        vscode.window
-            .showErrorMessage(
-                "Python interpreter not found. Select valid Python interpreter.",
-                "Select Interpreter",
-                "Open installation guide",
-                "Ignore"
-            )
-            .then((result) => {
-                switch (result) {
-                    case "Select Interpreter":
-                        vscode.commands.executeCommand("python.setInterpreter");
-                        break;
-
-                    case "Open installation guide":
-                        vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
-                        break;
-
-                    default:
-                        break;
-                }
-            });
+        return PyGerberLanguageServerStatus.interpreterNotFound;
     } else {
         const fullOutput = `${stdout} ${stderr}`;
 
         if (fullOutput.includes("Language server is available.")) {
-            return true;
+            return PyGerberLanguageServerStatus.good;
         } else if (fullOutput.includes("Language server is not available.")) {
+            return PyGerberLanguageServerStatus.languageServerNotFound;
+        } else if (fullOutput.includes("No module named pygerber")) {
+            return PyGerberLanguageServerStatus.pyGerberNotInstalled;
+        } else {
+            return PyGerberLanguageServerStatus.unexpectedError;
+        }
+    }
+}
+
+export async function handleNegativePyGerberLanguageServerStatus(
+    status: PyGerberLanguageServerStatus,
+    options: LanguageServerOptions
+) {
+    switch (status) {
+        case PyGerberLanguageServerStatus.interpreterNotFound: {
+            vscode.window
+                .showErrorMessage(
+                    "Python interpreter not found. Select valid Python interpreter.",
+                    "Select Interpreter",
+                    "Open installation guide",
+                    "Ignore"
+                )
+                .then((result) => {
+                    switch (result) {
+                        case "Select Interpreter":
+                            vscode.commands.executeCommand("python.setInterpreter");
+                            break;
+
+                        case "Open installation guide":
+                            vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+            break;
+        }
+
+        case PyGerberLanguageServerStatus.languageServerNotFound: {
             vscode.window
                 .showErrorMessage(
                     "PyGerber Language Server extension is not installed.",
@@ -183,7 +219,10 @@ export async function isPyGerberLanguageServerAvailable(
                             break;
                     }
                 });
-        } else if (fullOutput.includes("No module named pygerber")) {
+            break;
+        }
+
+        case PyGerberLanguageServerStatus.pyGerberNotInstalled: {
             vscode.window
                 .showErrorMessage(
                     "PyGerber library is not available.",
@@ -205,10 +244,14 @@ export async function isPyGerberLanguageServerAvailable(
                             break;
                     }
                 });
-        } else {
+            break;
+        }
+
+        case PyGerberLanguageServerStatus.unexpectedError: {
             vscode.window.showErrorMessage("Unexpected error!");
         }
-    }
 
-    return false;
+        default:
+            break;
+    }
 }

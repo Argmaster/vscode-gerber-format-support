@@ -3,7 +3,7 @@ import * as path from "path";
 import { LogLevel, Uri, WorkspaceFolder } from "vscode";
 import { Trace } from "vscode-jsonrpc/node";
 import * as vscodeapi from "./vscodeapi";
-import { exec } from "child_process";
+import { ExecOptions, exec } from "child_process";
 import { integer } from "vscode-languageclient";
 import { traceLog, traceVerbose } from "./log/logging";
 import * as vscode from "vscode";
@@ -86,9 +86,12 @@ export type CommandResult = {
     stderr: string;
 };
 
-export async function executeCommand(command: string): Promise<CommandResult> {
+export async function executeCommand(
+    command: string,
+    options: ExecOptions = {}
+): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
+        exec(command, options, (error, stdout, stderr) => {
             const code = error?.code ?? 0;
 
             traceLog(`   cmd:   ${command}`);
@@ -113,20 +116,17 @@ export async function installPyGerberAutomatically(options: LanguageServerOption
                 "-m",
                 "pip",
                 "install",
-                "'pygerber[language_server]>=2.1.0'",
+                "'pygerber[language_server]==2.1.0'",
                 "--no-cache",
+                "--upgrade",
+                "-t",
+                `${options.extensionDirectory}/.pygerber`,
             ].join(" ");
 
             const { code, stdout, stderr } = await executeCommand(cmd);
 
             if (code === 0) {
-                const re = /Successfully installed pygerber-(.*)(\s|$)/;
-                const result = re.exec(stdout);
-                const version = result?.[1];
-
-                vscode.window.showInformationMessage(
-                    `Successfully installed PyGerber ${version}`
-                );
+                vscode.window.showInformationMessage(`Successfully installed PyGerber`);
             } else {
                 vscode.window.showErrorMessage(
                     `PyGerber installation failed. (${code})`
@@ -141,7 +141,7 @@ export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function renderGerberFile() {
+export async function renderGerberFile(extensionDirectory: string) {
     const extensionStaticSettings = loadExtensionStaticSettings();
     const workspace = await getWorkspaceFolder();
     const userSettings = await getExtensionUserSettings(
@@ -183,7 +183,11 @@ export async function renderGerberFile() {
                 userSettings.renderDpi,
             ].join(" ");
 
-            const { code, stdout, stderr } = await executeCommand(cmd);
+            const { code, stdout, stderr } = await executeCommand(cmd, {
+                env: {
+                    PYTHONPATH: `${extensionDirectory}/.pygerber`, // eslint-disable-line @typescript-eslint/naming-convention
+                },
+            });
 
             if (code === 0) {
                 vscode.window.showInformationMessage(
