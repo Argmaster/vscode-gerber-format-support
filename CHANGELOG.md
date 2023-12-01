@@ -1,8 +1,16 @@
 # Change Log
 
-All notable changes to the "gerber-x3-x2-format-support" extension will be documented in this file.
+All notable changes to the "gerber-x3-x2-format-support" extension will be documented in
+this file.
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to
+structure this file.
+
+## [2.1.0]
+
+- Added integration with [PyGerber](https://github.com/Argmaster/pygerber) language
+  server.
+- Significantly improved syntax highlighting support.
 
 ## [1.0.2]
 
