@@ -4,7 +4,7 @@ import {
     EventEmitter,
     extensions,
     Uri,
-    WorkspaceFolder
+    WorkspaceFolder,
 } from "vscode";
 import { traceError, traceLog } from "./log/logging";
 

@@ -141,7 +141,7 @@
             },
             {
                 "command": "gerber_x3_x2_format_support.render",
-                "title": "Gerber: Render file"
+                "title": "Gerber: Render current file"
             }
         ],
         "menus": {

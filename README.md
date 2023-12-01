@@ -24,14 +24,40 @@ Afterwards all extension features should be available.
 
 ### 1. Syntax highlighting
 
-![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/6f815a6c-b54e-441d-9bdc-43ac9636cfeb)
+![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/b8406013-901b-4d47-9b9d-1871e40d11c5)
 
-### 2. Specification reference
+### 2. Language Server using PyGerber
 
-Hovering over most common commands (currently only D01, D02, D03, G01, G02, G03, more in
-the future) will show content of Gerber specification regarding hovered code.
+This extension utilizes PyGerber 2.1.0 builtin Gerber language server. To use this
+feature you will need to install Python 3.8+ on your device and Visual Studio Python
+Extension from Microsoft.
 
-![spec_reference](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/62f07a80-3320-4f40-a375-db1487163aa2)
+After starting this extension for the first time you will be presented with popup in
+bottom right corner asking if you want to install PyGerber automatically. Currently it
+is recommended to use this option, as alternatives are not well polished.
+
+![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/56f40939-de68-4dda-9b9a-281727b52720)
+
+#### 1. Gerber X3 Rev. 2023.03 reference
+
+![hover_hint_d01](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/54b4cf45-45ac-4295-8f44-e034b9ae6d9e)
+
+#### 2. Live suggestions (limited functionality)
+
+![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/f239d97f-aa63-4297-83a9-f3fab467b517)
+
+#### 3. Quick rendering (limited customization)
+
+![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/64725da7-1e6e-4281-87a8-e4105d6b89f9)
+
+![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/ffd7e7a7-2d95-41ec-bfc5-b60e68219f98)
+
+Click on the image, hold Ctrl and use mouse wheel to zoom in and out.
+
+## Issues and bugs
+
+Please report all issues and encountered bugs to
+[Issue section on Github](https://github.com/Argmaster/vscode-gerber-format-support/issues).
 
 ## Future plans
 

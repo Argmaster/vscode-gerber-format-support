@@ -298,4 +298,4 @@ cython_debug/
 
 \#**.*
 
-.pygerber/
+.pygerber*/

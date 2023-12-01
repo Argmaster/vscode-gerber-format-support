@@ -7,15 +7,11 @@ import {
     ServerOptions,
     TransportKind,
 } from "vscode-languageclient/node";
-import { traceError, traceInfo, traceVerbose } from "./log/logging";
+import { traceError, traceInfo, traceLog, traceVerbose } from "./log/logging";
 import { ExtensionUserSettings } from "./settings";
-import {
-    executeCommand,
-    getLSClientTraceLevel,
-    installPyGerberAutomatically,
-} from "./utilities";
+import { executeCommand, getLSClientTraceLevel } from "./utilities";
 import * as vscodeapi from "./vscodeapi";
-import { ExtensionStaticSettings } from "./setup";
+import { ExtensionStaticSettings } from "./settings";
 import { INSTALLATION_GUIDE_URL } from "./constants";
 
 export type LanguageServerOptions = {
@@ -27,12 +23,20 @@ export type LanguageServerOptions = {
     extensionDirectory: string;
 };
 
-async function createServer(options: LanguageServerOptions): Promise<LanguageClient> {
+async function createServerProcess(
+    options: LanguageServerOptions
+): Promise<LanguageClient> {
+    const venvPythonPath = await getVirtualEnvPythonPathValue(
+        options.extensionDirectory,
+        options.interpreter
+    );
+
     const command = options.interpreter;
     const cwd = options.cwd;
+
     const newEnv = {
         ...process.env,
-        PYTHONPATH: `${options.extensionDirectory}/.pygerber`, // eslint-disable-line @typescript-eslint/naming-convention
+        PYTHONPATH: venvPythonPath, // eslint-disable-line @typescript-eslint/naming-convention
     };
 
     const args = [
@@ -91,7 +95,7 @@ export async function restartServer(
         _disposables = [];
     }
 
-    const newLSClient = await createServer(options);
+    const newLSClient = await createServerProcess(options);
     traceInfo(`Server: Start requested.`);
 
     _disposables.push(
@@ -137,18 +141,23 @@ export enum PyGerberLanguageServerStatus {
 export async function isPyGerberLanguageServerAvailable(
     options: LanguageServerOptions
 ): Promise<PyGerberLanguageServerStatus> {
-    const cmd = [
-        options.interpreter,
-        "-m",
-        "pygerber",
-        "is-language-server-available",
-    ].join(" ");
+    try {
+        return await _isPyGerberLanguageServerAvailable(options);
+    } catch (Error) {
+        return PyGerberLanguageServerStatus.interpreterNotFound;
+    }
+}
 
-    const { code, stdout, stderr } = await executeCommand(cmd, {
-        env: {
-            PYTHONPATH: `${options.extensionDirectory}/.pygerber`, // eslint-disable-line @typescript-eslint/naming-convention
-        },
-    });
+async function _isPyGerberLanguageServerAvailable(
+    options: LanguageServerOptions
+): Promise<PyGerberLanguageServerStatus> {
+    const cmd = ["-m", "pygerber", "is-language-server-available"].join(" ");
+
+    const { code, stdout, stderr } = await executePythonCommand(
+        options.interpreter,
+        cmd,
+        options.extensionDirectory
+    );
 
     if (code === 127) {
         return PyGerberLanguageServerStatus.interpreterNotFound;
@@ -156,95 +165,185 @@ export async function isPyGerberLanguageServerAvailable(
         const fullOutput = `${stdout} ${stderr}`;
 
         if (fullOutput.includes("Language server is available.")) {
+            traceInfo("PyGerber language server found.");
             return PyGerberLanguageServerStatus.good;
         } else if (fullOutput.includes("Language server is not available.")) {
+            traceInfo("PyGerber language server not installed.");
             return PyGerberLanguageServerStatus.languageServerNotFound;
         } else if (fullOutput.includes("No module named pygerber")) {
+            traceInfo("PyGerber not installed.");
             return PyGerberLanguageServerStatus.pyGerberNotInstalled;
         } else {
+            traceInfo("Unexpected error, see full stdout/stderr above.");
             return PyGerberLanguageServerStatus.unexpectedError;
         }
     }
 }
 
+export async function executePythonCommand(
+    interpreter: string,
+    cmd: string,
+    extensionDirectory: string
+) {
+    const venvPythonPath = await getVirtualEnvPythonPathValue(
+        extensionDirectory,
+        interpreter
+    );
+    return await executeCommand([interpreter, cmd].join(" "), {
+        env: {
+            PYTHONPATH: venvPythonPath, // eslint-disable-line @typescript-eslint/naming-convention
+        },
+    });
+}
+
+class Version {
+    private major: number;
+    private minor: number;
+    private patch: number;
+
+    constructor(major: number, minor: number, patch: number) {
+        this.major = major;
+        this.minor = minor;
+        this.patch = patch;
+    }
+    public static fromString(versionString: string): Version {
+        const regex = /^(\d+)\.(\d+)\.(\d+)$/;
+        const match = versionString.match(regex);
+
+        if (!match) {
+            throw new Error("Invalid version string");
+        }
+
+        const [, major, minor, patch] = match.map(Number);
+        return new Version(major, minor, patch);
+    }
+    public toString(sep: string = "."): string {
+        return `${this.major}${sep}${this.minor}${sep}${this.patch}`;
+    }
+}
+
+export async function checkPythonInterpreterVersion(
+    interpreter: String
+): Promise<Version> {
+    const cmd = [interpreter, "--version"].join(" ");
+    const { code, stdout, stderr } = await executeCommand(cmd, {});
+
+    if (code === 127) {
+        throw Error("Interpreter not found.");
+    }
+
+    const regex = /Python (\d+\.\d+\.\d+)/;
+    let match = stdout.match(regex);
+
+    if (!match) {
+        throw new Error("Invalid version string");
+    }
+    return Version.fromString(match[1]);
+}
+
+export async function getVirtualEnvPythonPathValue(
+    extensionDirectory: String,
+    interpreter: String
+): Promise<string> {
+    let venvVersionSuffix = await getVirtualEnvSuffix(interpreter);
+    let venvPythonPath = `${extensionDirectory}/.pygerber-${venvVersionSuffix}`;
+    traceLog(`Virtual environment path: ${venvPythonPath}`);
+    return venvPythonPath;
+}
+
+export async function getVirtualEnvSuffix(interpreter: String): Promise<String> {
+    return (await checkPythonInterpreterVersion(interpreter)).toString("-");
+}
+
 export async function handleNegativePyGerberLanguageServerStatus(
     status: PyGerberLanguageServerStatus,
     options: LanguageServerOptions
-) {
+): Promise<Boolean> {
     switch (status) {
         case PyGerberLanguageServerStatus.interpreterNotFound: {
-            vscode.window
+            await vscode.window
                 .showErrorMessage(
                     "Python interpreter not found. Select valid Python interpreter.",
                     "Select Interpreter",
                     "Open installation guide",
                     "Ignore"
                 )
-                .then((result) => {
+                .then(async (result) => {
                     switch (result) {
                         case "Select Interpreter":
-                            vscode.commands.executeCommand("python.setInterpreter");
+                            await vscode.commands.executeCommand(
+                                "python.setInterpreter"
+                            );
+                            traceLog("Selected new interpreter with Python extension.");
                             break;
 
                         case "Open installation guide":
                             vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
+                            traceLog("Opened installation guide in browser window.");
                             break;
 
                         default:
                             break;
                     }
                 });
+            traceLog(
+                "Finished responding to PyGerberLanguageServerStatus.interpreterNotFound."
+            );
             break;
         }
 
         case PyGerberLanguageServerStatus.languageServerNotFound: {
-            vscode.window
+            await vscode.window
                 .showErrorMessage(
                     "PyGerber Language Server extension is not installed.",
                     "Open installation guide",
                     "Install automatically",
                     "Ignore"
                 )
-                .then((result) => {
+                .then(async (result) => {
                     switch (result) {
                         case "Open installation guide":
                             vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
+                            traceLog("Opened installation guide in browser window.");
                             break;
 
                         case "Install automatically":
-                            installPyGerberAutomatically(options);
+                            await installPyGerberAutomatically(options);
                             break;
 
                         default:
                             break;
                     }
                 });
+            traceLog(
+                "Finished responding to PyGerberLanguageServerStatus.languageServerNotFound."
+            );
             break;
         }
 
         case PyGerberLanguageServerStatus.pyGerberNotInstalled: {
-            vscode.window
+            return await vscode.window
                 .showErrorMessage(
                     "PyGerber library is not available.",
                     "Open installation guide",
                     "Install automatically",
                     "Ignore"
                 )
-                .then((result) => {
+                .then(async (result) => {
                     switch (result) {
                         case "Open installation guide":
                             vscodeapi.openUrlInWebBrowser(INSTALLATION_GUIDE_URL);
                             break;
 
                         case "Install automatically":
-                            installPyGerberAutomatically(options);
-                            break;
+                            await installPyGerberAutomatically(options);
+                            return true;
 
                         default:
                             break;
                     }
+                    return false;
                 });
-            break;
         }
 
         case PyGerberLanguageServerStatus.unexpectedError: {
@@ -254,4 +353,46 @@ export async function handleNegativePyGerberLanguageServerStatus(
         default:
             break;
     }
+    return false;
+}
+
+async function installPyGerberAutomatically(options: LanguageServerOptions) {
+    await vscode.window.withProgress(
+        {
+            title: "Installing PyGerber with Language Server.",
+            location: vscode.ProgressLocation.Notification,
+        },
+
+        async () => {
+            const venvPythonPath: string = await getVirtualEnvPythonPathValue(
+                options.extensionDirectory,
+                options.interpreter
+            );
+            const cmd = [
+                options.interpreter,
+                "-m",
+                "pip",
+                "install",
+                "'pygerber[language-server]>=2.1.0'",
+                "--no-cache",
+                "--upgrade",
+                "-t",
+                venvPythonPath,
+            ].join(" ");
+
+            const { code, stdout, stderr } = await executeCommand(cmd, {
+                timeout: 5 * 60 * 1000 /* Max 5 minutes then fail. */,
+            });
+
+            if (code === 0) {
+                vscode.window.showInformationMessage(`Successfully installed PyGerber`);
+            } else {
+                vscode.window.showErrorMessage(
+                    `PyGerber installation failed. (${code})`
+                );
+            }
+            return { message: "", increment: 100 };
+        }
+    );
+    traceLog("Installed PyGerber automatically.");
 }
