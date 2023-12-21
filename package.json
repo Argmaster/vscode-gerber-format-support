@@ -2,7 +2,7 @@
     "name": "gerber-x3-x2-format-support",
     "displayName": "Gerber X3/X2 Format Support",
     "description": "Visual Studio Code support for Gerber X3/X2 file format",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "license": "SEE LICENSE IN LICENSE.md",
     "maintainers": [
         {

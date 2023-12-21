@@ -6,6 +6,12 @@ this file.
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to
 structure this file.
 
+## [2.1.1]
+
+- Improved Python environment discovery.
+- Improved Gerber file rendering feature and display view. It now allows zooming with
+  `ctrl` + `scroll` and move with `hold left mouse button` + `move mouse`.
+
 ## [2.1.0]
 
 - Added integration with [PyGerber](https://github.com/Argmaster/pygerber) language

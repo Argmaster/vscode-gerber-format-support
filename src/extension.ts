@@ -538,21 +538,24 @@ class ExtensionObject {
                 location: vscode.ProgressLocation.Notification,
             },
             async () => {
+                const command = [
+                    "-m",
+                    "pygerber",
+                    "raster-2d",
+                    `"${filePath}"`,
+                    "--style",
+                    this.userSettings.layerStyle,
+                    "--output",
+                    `"${outputFilePath}"`,
+                    "--dpi",
+                    this.userSettings.renderDpi,
+                ].join(" ");
+
+                traceLog("Requested render of current file");
+                traceLog(command);
+
                 const { code, stdout, stderr } =
-                    await this.getPythonEnvironment().executePythonCommand(
-                        [
-                            "-m",
-                            "pygerber",
-                            "raster-2d",
-                            filePath,
-                            "--style",
-                            this.userSettings.layerStyle,
-                            "--output",
-                            outputFilePath,
-                            "--dpi",
-                            this.userSettings.renderDpi,
-                        ].join(" ")
-                    );
+                    await this.getPythonEnvironment().executePythonCommand(command);
 
                 if (code === 0) {
                     vscode.window.showInformationMessage(
@@ -681,6 +684,7 @@ function getWebviewContent(base64Image: string): string {
             border-style: dashed;
             border-color: white;
             border-width: 1px;
+            image-rendering: pixelated;
         }
     `;
 

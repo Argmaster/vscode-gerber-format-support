@@ -28,7 +28,7 @@ Afterwards all extension features should be available.
 
 ### 2. Language Server using PyGerber
 
-This extension utilizes PyGerber 2.1.0 builtin Gerber language server.
+This extension utilizes PyGerber 2.1.0+ builtin Gerber language server.
 
 > ⚠️ Warning
 >
@@ -53,9 +53,13 @@ is recommended to use this option, as alternatives are not well polished.
 
 ![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/64725da7-1e6e-4281-87a8-e4105d6b89f9)
 
-![image](https://github.com/Argmaster/vscode-gerber-format-support/assets/56170852/ffd7e7a7-2d95-41ec-bfc5-b60e68219f98)
+![image](https://github.com/Argmaster/pygerber/assets/56170852/d9243480-ffd4-4d40-8f26-036f0179427a)
 
-Click on the image, hold Ctrl and use mouse wheel to zoom in and out.
+![image](https://github.com/Argmaster/pygerber/assets/56170852/d1f27dc6-a057-4c7b-b99a-fe80dfd9860e)
+
+This view now allows zooming with `ctrl` + `scroll` and move with
+`hold left mouse button` + `move mouse`. Window must be focused to allow those actions.
+To focus render view click inside it.
 
 ## Issues and bugs
 
