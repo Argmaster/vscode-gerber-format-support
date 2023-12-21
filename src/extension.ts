@@ -31,9 +31,14 @@ import {
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { LANGUAGE_SERVER_NAME, SETTINGS_NAMESPACE } from "./common/constants";
+import {
+    EXTENSION_NAME,
+    LANGUAGE_SERVER_NAME,
+    SETTINGS_NAMESPACE,
+} from "./common/constants";
 
-let extension: ExtensionObject | undefined;
+let extension: ExtensionObject | undefined = undefined;
+let outputChannel: vscode.LogOutputChannel | undefined = undefined;
 
 class ExtensionObject {
     context: vscode.ExtensionContext;
@@ -55,7 +60,10 @@ class ExtensionObject {
     ) {
         this.context = context;
         this.workspace = workspace;
-        this.outputChannel = this.configureOutputChannel();
+        if (outputChannel === undefined) {
+            throw Error("Output channel not defined.");
+        }
+        this.outputChannel = outputChannel;
         this.userSettings = userSettings;
         this.temporaryDirectory = fs.mkdtempSync(
             path.join(os.tmpdir(), SETTINGS_NAMESPACE)
@@ -69,31 +77,9 @@ class ExtensionObject {
         this.updateVscodeEventSubscriptions();
     }
 
-    private configureOutputChannel(): vscode.LogOutputChannel {
-        const outputChannel = createOutputChannel(LANGUAGE_SERVER_NAME);
-        this.context.subscriptions.push(outputChannel, registerLogger(outputChannel));
-
-        const changeLogLevel = async (c: vscode.LogLevel, g: vscode.LogLevel) => {
-            const level = getLSClientTraceLevel(c, g);
-            await this.lsClient?.setTrace(level);
-        };
-
-        this.context.subscriptions.push(
-            outputChannel.onDidChangeLogLevel(async (e) => {
-                await changeLogLevel(e, vscode.env.logLevel);
-            }),
-            vscode.env.onDidChangeLogLevel(async (e) => {
-                await changeLogLevel(outputChannel.logLevel, e);
-            })
-        );
-
-        // Log Server information
-        traceLog(`Name: ${LANGUAGE_SERVER_NAME}`);
-        traceLog(`Module: ${SETTINGS_NAMESPACE}`);
-        return outputChannel;
-    }
-
     static async create(context: vscode.ExtensionContext): Promise<ExtensionObject> {
+        traceLog(`Requested ${EXTENSION_NAME} extension creation`);
+
         if (extension !== undefined) {
             throw Error("ExtensionObject is expected to be a singleton.");
         }
@@ -122,6 +108,7 @@ class ExtensionObject {
             );
             this.context.subscriptions.push(
                 onDidChangeConfiguration((event) => {
+                    traceLog(`Detected onDidChangeConfiguration()`);
                     if (
                         event.affectsConfiguration("gerber_x3_x2_format_support.enable")
                     ) {
@@ -136,17 +123,21 @@ class ExtensionObject {
 
         this.context.subscriptions.push(
             onDidChangePythonInterpreter(async () => {
+                traceLog(`Detected onDidChangePythonInterpreter()`);
                 await this.main();
             }),
             onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
                 if (checkIfConfigurationChanged(e)) {
+                    traceLog(`Detected onDidChangeConfiguration()`);
                     await this.main();
                 }
             }),
             registerCommand(`${SETTINGS_NAMESPACE}.restart`, async () => {
+                traceLog(`Running command restart`);
                 await extension?.startLanguageServer();
             }),
             registerCommand(`${SETTINGS_NAMESPACE}.render`, async () => {
+                traceLog(`Running command render`);
                 await this.renderGerberFile();
             })
         );
@@ -713,14 +704,43 @@ function getWebviewContent(base64Image: string): string {
     </html>`;
 }
 
+function configureOutputChannel(
+    context: vscode.ExtensionContext
+): vscode.LogOutputChannel {
+    const outputChannel = createOutputChannel(LANGUAGE_SERVER_NAME);
+    context.subscriptions.push(outputChannel, registerLogger(outputChannel));
+
+    const changeLogLevel = async (c: vscode.LogLevel, g: vscode.LogLevel) => {
+        const level = getLSClientTraceLevel(c, g);
+        await extension?.lsClient?.setTrace(level);
+    };
+
+    context.subscriptions.push(
+        outputChannel.onDidChangeLogLevel(async (e) => {
+            await changeLogLevel(e, vscode.env.logLevel);
+        }),
+        vscode.env.onDidChangeLogLevel(async (e) => {
+            await changeLogLevel(outputChannel.logLevel, e);
+        })
+    );
+
+    // Log Server information
+    traceLog(`Name: ${LANGUAGE_SERVER_NAME}`);
+    traceLog(`Module: ${SETTINGS_NAMESPACE}`);
+    return outputChannel;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    outputChannel = configureOutputChannel(context);
+    traceLog(`Activating extension ${EXTENSION_NAME}`);
+
     traceLog(`Python extension loading`);
     await initializeVscodePythonExtension(context.subscriptions);
     traceLog(`Python extension loaded`);
 
-    traceLog(`Gerber X3/X2 Format Support extension loading`);
+    traceLog(`${EXTENSION_NAME} extension loading`);
     extension = await ExtensionObject.create(context);
-    traceLog(`Gerber X3/X2 Format Support extension loaded`);
+    traceLog(`${EXTENSION_NAME} extension loaded`);
 }
 
 export async function deactivate(): Promise<void> {
