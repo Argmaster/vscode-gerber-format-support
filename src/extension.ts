@@ -1,36 +1,27 @@
 import * as vscode from "vscode";
 import { LanguageClient, State } from "vscode-languageclient/node";
+import { registerLogger, traceError, traceLog } from "./common/log/logging";
 import {
-    registerLogger,
-    traceError,
-    traceInfo,
-    traceLog,
-    traceVerbose,
-} from "./common/log/logging";
-import {
-    getInterpreterDetails,
-    initializePython,
-    isInterpreterGood,
+    PythonEnvironment,
+    ResolvedEnvironment,
+    getPythonExtensionAPI,
+    initializePython as initializeVscodePythonExtension,
     onDidChangePythonInterpreter,
+    resolveInterpreter,
 } from "./common/python";
-import {
-    LanguageServerOptions,
-    PyGerberLanguageServerStatus,
-    executePythonCommand,
-    handleNegativePyGerberLanguageServerStatus as handleNegativePyGerberLanguageServerStatus,
-    isPyGerberLanguageServerAvailable,
-    restartServer,
-} from "./common/server";
+import { LanguageServerOptions, restartServer } from "./common/server";
 import {
     checkIfConfigurationChanged,
     ExtensionUserSettings,
     getExtensionUserSettings,
+    ignoreWarning,
+    shouldShowWarning,
 } from "./common/settings";
 import {
-    ExtensionStaticSettings,
-    loadExtensionStaticSettings,
-} from "./common/settings";
-import { getLSClientTraceLevel, getWorkspaceFolder } from "./common/utilities";
+    executeCommand,
+    getLSClientTraceLevel,
+    getWorkspaceFolder,
+} from "./common/utilities";
 import {
     createOutputChannel,
     onDidChangeConfiguration,
@@ -40,29 +31,22 @@ import {
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { LANGUAGE_SERVER_NAME, SETTINGS_NAMESPACE } from "./common/constants";
 
-const issueTracker = "https://github.com/argmaster/pygerber/issues";
-
-enum LanguageStartupStateEnum {
-    notRunning,
-    starting,
-    running,
-    crashed,
-}
-
-let lsClient: LanguageClient | undefined;
-let restartQueued = false;
-let startupState = LanguageStartupStateEnum.notRunning;
 let extension: ExtensionObject | undefined;
 
 class ExtensionObject {
     context: vscode.ExtensionContext;
     workspace: vscode.WorkspaceFolder;
-    extensionStaticSettings: ExtensionStaticSettings;
     outputChannel: vscode.LogOutputChannel;
     userSettings: ExtensionUserSettings;
     temporaryDirectory: string;
     languageServerOptions: LanguageServerOptions | undefined;
+    pythonEnvironments: PythonEnvironment[];
+    currentEnvironment: PythonEnvironment | undefined;
+    languageServerIsRunning: boolean;
+    languageServerIsCrashed: boolean;
+    lsClient: LanguageClient | undefined;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -71,47 +55,27 @@ class ExtensionObject {
     ) {
         this.context = context;
         this.workspace = workspace;
-        this.extensionStaticSettings = loadExtensionStaticSettings();
         this.outputChannel = this.configureOutputChannel();
         this.userSettings = userSettings;
-        this.temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "my-app-"));
-        this.languageServerOptions = undefined;
-    }
-
-    static async create(context: vscode.ExtensionContext): Promise<ExtensionObject> {
-        if (extension !== undefined) {
-            throw Error("ExtensionObject is expected to be a singleton.");
-        }
-        const { languageServerName, settingsNamespace } = loadExtensionStaticSettings();
-        const workspace = await getWorkspaceFolder();
-        const userSettings = await getExtensionUserSettings(
-            settingsNamespace,
-            workspace
+        this.temporaryDirectory = fs.mkdtempSync(
+            path.join(os.tmpdir(), SETTINGS_NAMESPACE)
         );
-
-        const interpreterStats = isInterpreterGood(userSettings.interpreter);
-
-        if (!(await interpreterStats).isGood) {
-            traceLog(`Python extension loading`);
-            await initializePython(context.subscriptions);
-            traceLog(`Python extension loaded`);
-        }
-
-        extension = new ExtensionObject(context, workspace, userSettings);
-        await extension.updateVscodeEventSubscriptions();
-
-        return extension;
+        this.languageServerOptions = undefined;
+        this.pythonEnvironments = [];
+        this.currentEnvironment = undefined;
+        this.languageServerIsRunning = false;
+        this.languageServerIsCrashed = false;
+        this.lsClient = undefined;
+        this.updateVscodeEventSubscriptions();
     }
 
-    configureOutputChannel(): vscode.LogOutputChannel {
-        const { languageServerName, settingsNamespace } = this.extensionStaticSettings;
-
-        const outputChannel = createOutputChannel(languageServerName);
+    private configureOutputChannel(): vscode.LogOutputChannel {
+        const outputChannel = createOutputChannel(LANGUAGE_SERVER_NAME);
         this.context.subscriptions.push(outputChannel, registerLogger(outputChannel));
 
         const changeLogLevel = async (c: vscode.LogLevel, g: vscode.LogLevel) => {
             const level = getLSClientTraceLevel(c, g);
-            await lsClient?.setTrace(level);
+            await this.lsClient?.setTrace(level);
         };
 
         this.context.subscriptions.push(
@@ -124,54 +88,34 @@ class ExtensionObject {
         );
 
         // Log Server information
-        traceLog(`Name: ${languageServerName}`);
-        traceLog(`Module: ${settingsNamespace}`);
+        traceLog(`Name: ${LANGUAGE_SERVER_NAME}`);
+        traceLog(`Module: ${SETTINGS_NAMESPACE}`);
         return outputChannel;
     }
 
-    getExtensionDirectory(): string {
-        return this.context.extensionPath;
-    }
-
-    getLanguageServerName(): string {
-        return this.extensionStaticSettings.languageServerName;
-    }
-
-    getSettingsNamespace(): string {
-        return this.extensionStaticSettings.settingsNamespace;
-    }
-
-    getIsExtensionEnabled(): Boolean {
-        const { enable } = this.userSettings;
-        return enable;
-    }
-
-    async getInterpreterPath(): Promise<string> {
-        let interpreterPath: string = "";
-
-        const interpreterStats = await isInterpreterGood(this.userSettings.interpreter);
-        if (interpreterStats.isGood) {
-            traceVerbose(
-                `Using interpreter from ${this.getSettingsNamespace()}.interpreter: ${
-                    (await interpreterStats).path
-                }`
-            );
-            interpreterPath = interpreterStats.path;
+    static async create(context: vscode.ExtensionContext): Promise<ExtensionObject> {
+        if (extension !== undefined) {
+            throw Error("ExtensionObject is expected to be a singleton.");
         }
+        const workspace = await getWorkspaceFolder();
+        const userSettings = getExtensionUserSettings(SETTINGS_NAMESPACE, workspace);
 
-        const interpreterDetails = await getInterpreterDetails();
-        if (interpreterDetails.path) {
-            traceVerbose(
-                `Using interpreter from Python extension: ${interpreterDetails.path.join(
-                    " "
-                )}`
-            );
-            interpreterPath = interpreterDetails.path[0];
-        }
-        return interpreterPath;
+        extension = new ExtensionObject(context, workspace, userSettings);
+        await extension.main();
+
+        return extension;
     }
 
-    async updateVscodeEventSubscriptions() {
+    async main() {
+        if (this.getIsExtensionEnabled()) {
+            await this.detectPythonEnvironments();
+            await this.resolvePythonEnvironment();
+            await this.createLanguageServerOptions();
+            await this.startLanguageServer();
+        }
+    }
+
+    updateVscodeEventSubscriptions() {
         if (!this.getIsExtensionEnabled()) {
             traceLog(
                 "Extension is disabled. To enable, change `gerber_x3_x2_format_support.enable` to `true` and restart VS Code."
@@ -192,131 +136,389 @@ class ExtensionObject {
 
         this.context.subscriptions.push(
             onDidChangePythonInterpreter(async () => {
-                await this.runServer();
+                await this.main();
             }),
             onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
-                if (checkIfConfigurationChanged(e, this.getSettingsNamespace())) {
-                    await this.runServer();
+                if (checkIfConfigurationChanged(e)) {
+                    await this.main();
                 }
             }),
-            registerCommand(`${this.getSettingsNamespace()}.restart`, async () => {
-                if (startupState === LanguageStartupStateEnum.crashed) {
-                    startupState = LanguageStartupStateEnum.running;
-                }
-                await this.runServer();
+            registerCommand(`${SETTINGS_NAMESPACE}.restart`, async () => {
+                await extension?.startLanguageServer();
             }),
-            registerCommand(`${this.getSettingsNamespace()}.render`, async () => {
+            registerCommand(`${SETTINGS_NAMESPACE}.render`, async () => {
                 await this.renderGerberFile();
             })
         );
     }
 
-    async getLanguageServerOptions(): Promise<LanguageServerOptions> {
-        if (this.languageServerOptions === undefined) {
-            const interpreterPath = await this.getInterpreterPath();
+    private async detectPythonEnvironments() {
+        traceLog("Detecting Python Environments.");
 
-            if (!interpreterPath) {
-                const message =
-                    "Python interpreter missing:\r\n" +
-                    "Select python interpreter using the ms-python.python.\r\n" +
-                    "Please use Python 3.8 or greater.";
+        let resolvedEnvironments: ResolvedEnvironment[] = [];
 
-                traceError(message);
-                vscode.window.showErrorMessage(message);
-                throw Error("Python interpreter missing.");
+        const api = await getPythonExtensionAPI();
+        if (api === undefined) {
+            traceLog("Microsoft Python extension (ms-python.python) not found.");
+            await this.warnMsPythonNotFound();
+            return;
+        }
+
+        const activeEnvironmentID =
+            api.environments.getActiveEnvironmentPath(undefined).id;
+
+        api.environments.known.forEach((known) => {
+            resolvedEnvironments.push(known.internal);
+        });
+
+        for (const environment of resolvedEnvironments) {
+            const isActive = environment.id === activeEnvironmentID;
+
+            const pythonEnvironment = await PythonEnvironment.fromResolvedEnvironment(
+                environment,
+                isActive,
+                /* isCustom */ false
+            );
+            if (isActive) {
+                this.pythonEnvironments.unshift(pythonEnvironment);
+            } else {
+                this.pythonEnvironments.push(pythonEnvironment);
             }
-            this.languageServerOptions = {
-                interpreter: interpreterPath,
-                cwd: this.workspace.uri.fsPath,
-                outputChannel: this.outputChannel,
-                staticSettings: this.extensionStaticSettings,
-                userSettings: this.userSettings,
-                extensionDirectory: this.getExtensionDirectory(),
-            };
+        }
+
+        if (this.userSettings.customInterpreterPath.length) {
+            const environment = await resolveInterpreter(
+                this.userSettings.customInterpreterPath
+            );
+            if (environment) {
+                const pythonEnvironment =
+                    await PythonEnvironment.fromResolvedEnvironment(
+                        environment,
+                        /* isActive */ false,
+                        /* isCustom */ true
+                    );
+                this.pythonEnvironments.unshift(pythonEnvironment);
+            }
+        }
+        if (this.userSettings.pygerberSearchMode === "extension") {
+            const extensionPythonPathEnvironments: PythonEnvironment[] = [];
+            const extensionDirectory = this.getExtensionDirectory();
+
+            for (const environment of this.pythonEnvironments) {
+                const extensionPyGerberStoragePath = `${extensionDirectory}/pygerber/python/${environment
+                    .getPythonVersion()
+                    .toString()}`;
+
+                extensionPythonPathEnvironments.push(
+                    await PythonEnvironment.fromPythonEnvironment(
+                        environment,
+                        extensionPyGerberStoragePath
+                    )
+                );
+            }
+            this.pythonEnvironments = extensionPythonPathEnvironments;
+        }
+
+        if (this.pythonEnvironments.length) {
+            this.logPythonInterpretersInfoList();
+        } else {
+            traceLog(
+                "No Python interpreter detected. Language Server features won't be available."
+            );
+            await this.warnNoInterpreterFound();
+        }
+    }
+
+    private logPythonInterpretersInfoList() {
+        for (const environment of this.pythonEnvironments) {
+            const isPyGerberLSAvailable =
+                environment.isPyGerberLanguageServerAvailable();
+            const pyGerberVersion = environment.getPyGerberVersion()?.toString();
+
+            traceLog("---------------------------------------------------------------");
+            traceLog(`  Python ID           - ${environment.getPythonID()}`);
+            traceLog(`  Python path         - ${environment.getExecutablePath()}`);
+            traceLog(`  Python Version      - ${environment.getPythonVersion()}`);
+            traceLog(`  Is Active           - ${environment.getIsActive()}`);
+            traceLog(`  Is Custom           - ${environment.getIsCustom()}`);
+            traceLog(`  PyGerber available  - ${isPyGerberLSAvailable}`);
+            traceLog(`  PyGerber version    - ${pyGerberVersion}`);
+            traceLog(`  Custom Python Path  - ${environment.getCustomPythonPath()}`);
+        }
+        traceLog("---------------------------------------------------------------");
+    }
+
+    private async warnNoInterpreterFound() {
+        const OK_OPTION = "Ok";
+        const DON_T_SHOW_AGAIN_OPTION = "Don't show again";
+        const WARNING_NAME = "warn-no-interpreter-found";
+
+        if (shouldShowWarning(WARNING_NAME)) {
+            await vscode.window
+                .showErrorMessage(
+                    `No Python interpreter found. Please install Python ` +
+                        `interpreter version 3.8 or later to use language server features.`,
+                    OK_OPTION,
+                    DON_T_SHOW_AGAIN_OPTION
+                )
+                .then(async (result) => {
+                    switch (result) {
+                        case OK_OPTION:
+                            break;
+
+                        case DON_T_SHOW_AGAIN_OPTION:
+                            ignoreWarning(WARNING_NAME);
+                            traceLog(`Ignored warning '${WARNING_NAME}' message.`);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+        }
+    }
+
+    private async warnMsPythonNotFound() {
+        const OK_OPTION = "Ok";
+        const DON_T_SHOW_AGAIN_OPTION = "Don't show again";
+        const WARNING_NAME = "warn-no-ms-python-found";
+
+        if (shouldShowWarning(WARNING_NAME)) {
+            await vscode.window
+                .showErrorMessage(
+                    `Visual Studio Code Python extension from Microsoft not found (ms-python.python).` +
+                        `It is necessary for language server features to work.`,
+                    OK_OPTION,
+                    DON_T_SHOW_AGAIN_OPTION
+                )
+                .then(async (result) => {
+                    switch (result) {
+                        case OK_OPTION:
+                            break;
+
+                        case DON_T_SHOW_AGAIN_OPTION:
+                            ignoreWarning(WARNING_NAME);
+                            traceLog(`Ignored warning '${WARNING_NAME}' message.`);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+        }
+    }
+
+    private async resolvePythonEnvironment() {
+        if (this.pythonEnvironments.length === 0) {
+            return;
+        }
+        for (const environment of this.pythonEnvironments) {
+            if (environment.isPyGerberLanguageServerAvailable()) {
+                this.currentEnvironment = environment;
+                traceLog(
+                    `Found Python interpreter with PyGerber on board: ${environment.getPythonID()}`
+                );
+                return;
+            } else {
+                traceLog(
+                    `Python ${environment.getPythonID()} doesn't have PyGerber, falling back.`
+                );
+            }
+            if (!this.userSettings.allowAutomaticFallback) {
+                traceLog(`Fallback behavior disabled, aborting.`);
+                await this.warnPyGerberNotAvailableAndFallbackDisabled(environment);
+                return;
+            }
+        }
+        const environment = this.pythonEnvironments[0];
+        this.warnNoPythonEnvironmentHasPyGerber(environment);
+    }
+
+    private async warnPyGerberNotAvailableAndFallbackDisabled(
+        environment: PythonEnvironment
+    ) {
+        const OK_OPTION = "Ok";
+        const AUTO_INSTALL_OPTION = "Automatically install PyGerber";
+        const DON_T_SHOW_AGAIN_OPTION = "Don't show again";
+        const WARNING_NAME = "warn-pygerber-missing-no-fallback";
+
+        if (shouldShowWarning(WARNING_NAME)) {
+            await vscode.window
+                .showErrorMessage(
+                    `PyGerber is not installed in active/custom environment and automatic fallback is disabled.`,
+                    OK_OPTION,
+                    AUTO_INSTALL_OPTION,
+                    DON_T_SHOW_AGAIN_OPTION
+                )
+                .then(async (result) => {
+                    switch (result) {
+                        case OK_OPTION:
+                            break;
+
+                        case AUTO_INSTALL_OPTION:
+                            await this.autoInstallPyGerber(environment);
+                            break;
+
+                        case DON_T_SHOW_AGAIN_OPTION:
+                            ignoreWarning(WARNING_NAME);
+                            traceLog(`Ignored warning '${WARNING_NAME}' message.`);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+        }
+    }
+
+    private async warnNoPythonEnvironmentHasPyGerber(environment: PythonEnvironment) {
+        const OK_OPTION = "Ok";
+        const AUTO_INSTALL_OPTION = "Automatically install PyGerber";
+        const DON_T_SHOW_AGAIN_OPTION = "Don't show again";
+        const WARNING_NAME = "warn-pygerber-not-found-anywhere";
+
+        if (shouldShowWarning(WARNING_NAME)) {
+            await vscode.window
+                .showErrorMessage(
+                    `PyGerber was not found in any of known Python environments.`,
+                    OK_OPTION,
+                    AUTO_INSTALL_OPTION,
+                    DON_T_SHOW_AGAIN_OPTION
+                )
+                .then(async (result) => {
+                    switch (result) {
+                        case OK_OPTION:
+                            break;
+
+                        case AUTO_INSTALL_OPTION:
+                            await this.autoInstallPyGerber(environment);
+                            break;
+
+                        case DON_T_SHOW_AGAIN_OPTION:
+                            ignoreWarning(WARNING_NAME);
+                            traceLog(`Ignored warning '${WARNING_NAME}' message.`);
+                            break;
+
+                        default:
+                            break;
+                    }
+                });
+        }
+    }
+
+    private async autoInstallPyGerber(environment: PythonEnvironment) {
+        await vscode.window.withProgress(
+            {
+                title: "Installing PyGerber with Language Server.",
+                location: vscode.ProgressLocation.Notification,
+            },
+            async () => {
+                traceLog("User requested automatic PyGerber installation.");
+                let args = [
+                    environment.getExecutablePath(),
+                    "-m",
+                    "pip",
+                    "install",
+                    "pygerber[language-server]>=2.1.0",
+                    "--no-cache",
+                    "--upgrade",
+                ];
+                const customPythonPath = environment.getCustomPythonPath();
+                if (customPythonPath !== undefined) {
+                    args.push("-t");
+                    args.push(customPythonPath);
+                    traceLog(
+                        `Using custom path for automatic installation '${customPythonPath}'`
+                    );
+                }
+
+                const { code, stdout, stderr } = await executeCommand(args.join(" "), {
+                    timeout: 5 * 60 * 1000 /* Max 5 minutes then fail. */,
+                });
+
+                if (code === 0) {
+                    traceLog("Automatic PyGerber installation succeeded.");
+                    vscode.window
+                        .showInformationMessage(`Successfully installed PyGerber`)
+                        .then(() => {});
+                } else {
+                    traceLog(
+                        `Automatic PyGerber installation failed with exit code ${code}.`
+                    );
+                    vscode.window
+                        .showErrorMessage(`PyGerber installation failed. (${code})`)
+                        .then(() => {});
+                }
+                return { message: "", increment: 100 };
+            }
+        );
+    }
+
+    hasPythonEnvironment(): boolean {
+        return this.currentEnvironment !== undefined;
+    }
+
+    private getPythonEnvironment(): PythonEnvironment {
+        if (this.currentEnvironment === undefined) {
+            throw Error("this.pythonEnvironments is undefined");
+        }
+        return this.currentEnvironment;
+    }
+
+    private async createLanguageServerOptions() {
+        this.languageServerOptions = {
+            environment: this.getPythonEnvironment(),
+            cwd: this.workspace.uri.fsPath,
+            outputChannel: this.outputChannel,
+            userSettings: this.userSettings,
+            extensionDirectory: this.getExtensionDirectory(),
+        };
+    }
+
+    getExtensionDirectory(): string {
+        return this.context.extensionPath;
+    }
+
+    getIsExtensionEnabled(): Boolean {
+        const { enable } = this.userSettings;
+        return enable;
+    }
+
+    async startLanguageServer() {
+        if (!this.hasPythonEnvironment()) {
+            traceError(
+                "Python environment was not detected. Language server will not be started."
+            );
+            return;
+        }
+
+        const languageServerOptions = this.getLanguageServerOptions();
+
+        traceLog("Starting language server daemon.");
+        try {
+            this.lsClient = await restartServer(languageServerOptions, this.lsClient);
+        } catch {}
+
+        if (this.lsClient === undefined || this.lsClient.state === State.Stopped) {
+            this.languageServerIsRunning = false;
+            this.languageServerIsCrashed = true;
+            traceLog(`${LANGUAGE_SERVER_NAME} startup failed.`);
+        } else {
+            this.languageServerIsRunning = true;
+            this.languageServerIsCrashed = false;
+            traceLog(`${LANGUAGE_SERVER_NAME} startup succeeded.`);
+        }
+    }
+
+    getLanguageServerOptions(): LanguageServerOptions {
+        if (this.languageServerOptions === undefined) {
+            throw Error("Missing language server options.");
         }
         return this.languageServerOptions;
     }
 
-    async runServer() {
-        switch (startupState) {
-            case LanguageStartupStateEnum.notRunning:
-                traceLog(
-                    `Language server ${this.getLanguageServerName()} is not running, let's start it.`
-                );
-                startupState = LanguageStartupStateEnum.starting;
-                break;
-
-            case LanguageStartupStateEnum.starting:
-                traceLog(
-                    `Server is currently starting ${this.getLanguageServerName()}, wait or reset Visual Studio Code.`
-                );
-                return;
-
-            case LanguageStartupStateEnum.running:
-                traceLog(
-                    `Language Server is currently running, let's stop it and run again.`
-                );
-
-                startupState = LanguageStartupStateEnum.starting;
-                break;
-
-            case LanguageStartupStateEnum.crashed:
-                traceLog(
-                    `Primary startup of ${this.getLanguageServerName()} failed, aborting.`
-                );
-                return;
-
-            default:
-                return;
-        }
-
-        const languageServerOptions = await this.getLanguageServerOptions();
-        const languageServerStatus = await isPyGerberLanguageServerAvailable(
-            languageServerOptions
-        );
-
-        switch (languageServerStatus) {
-            case PyGerberLanguageServerStatus.good: {
-                await this.startServerWithStateUpdate();
-                break;
-            }
-
-            default: {
-                traceInfo(
-                    `Language server is not available, require user interaction.`
-                );
-                let shouldRetryServerStartup =
-                    await handleNegativePyGerberLanguageServerStatus(
-                        languageServerStatus,
-                        languageServerOptions
-                    );
-                if (shouldRetryServerStartup) {
-                    await this.startServerWithStateUpdate();
-                }
-                break;
-            }
-        }
-        return;
-    }
-
-    async startServerWithStateUpdate() {
-        const languageServerOptions = await this.getLanguageServerOptions();
-
-        traceLog("Starting language server daemon.");
-        lsClient = await restartServer(languageServerOptions, lsClient);
-
-        if (lsClient === undefined || lsClient.state === State.Stopped) {
-            startupState = LanguageStartupStateEnum.crashed;
-            traceLog(`${this.getLanguageServerName()} startup failed.`);
-        }
-
-        traceLog(`${this.getLanguageServerName()} startup succeeded.`);
-        startupState = LanguageStartupStateEnum.running;
-
-        if (restartQueued) {
-            restartQueued = false;
-            await this.runServer();
-        }
+    async stopLanguageServer() {
+        await this.lsClient?.stop();
     }
 
     async renderGerberFile() {
@@ -336,24 +538,21 @@ class ExtensionObject {
                 location: vscode.ProgressLocation.Notification,
             },
             async () => {
-                const cmd = [
-                    "-m",
-                    "pygerber",
-                    "raster-2d",
-                    filePath,
-                    "--style",
-                    this.userSettings.layerStyle,
-                    "--output",
-                    outputFilePath,
-                    "--dpi",
-                    this.userSettings.renderDpi,
-                ].join(" ");
-
-                const { code, stdout, stderr } = await executePythonCommand(
-                    await this.getInterpreterPath(),
-                    cmd,
-                    this.getExtensionDirectory()
-                );
+                const { code, stdout, stderr } =
+                    await this.getPythonEnvironment().executePythonCommand(
+                        [
+                            "-m",
+                            "pygerber",
+                            "raster-2d",
+                            filePath,
+                            "--style",
+                            this.userSettings.layerStyle,
+                            "--output",
+                            outputFilePath,
+                            "--dpi",
+                            this.userSettings.renderDpi,
+                        ].join(" ")
+                    );
 
                 if (code === 0) {
                     vscode.window.showInformationMessage(
@@ -381,63 +580,129 @@ class ExtensionObject {
 }
 
 function getWebviewContent(base64Image: string): string {
+    const javascriptCode = `
+
+    let ctrlKey = false;
+    let shiftKey = false;
+    let mouseHold = false;
+    let imageScale = 2;
+
+    document.addEventListener('keydown', function(event) {
+        if (event.ctrlKey) {
+            console.log("CTRL DOWN");
+            ctrlKey = true;
+        }
+    });
+
+    document.addEventListener('keyup', function(event) {
+        if (!event.ctrlKey) {
+            console.log("CTRL UP");
+            ctrlKey = false;
+        }
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (event.shiftKey) {
+            console.log("SHIFT DOWN");
+            shiftKey = true;
+        }
+    });
+
+    document.addEventListener('keyup', function(event) {
+        if (!event.shiftKey) {
+            console.log("SHIFT UP");
+            shiftKey = false;
+        }
+    });
+
+    document.addEventListener('mousedown', function(event) {
+        console.log("MOUSE DOWN");
+        mouseHold = true;
+    });
+
+    document.addEventListener('mouseup', function(event) {
+        console.log("MOUSE UP");
+        mouseHold = false;
+    });
+
+    document.addEventListener('mousemove', function(event) {
+        if (mouseHold) {
+            window.scrollBy(-event.movementX, -event.movementY);
+        }
+    });
+
+    document.addEventListener('wheel', function(event) {
+        console.log("WHEEL " + ctrlKey  + " " + shiftKey + " " + imageScale);
+        if (ctrlKey) {
+        	if (event.deltaY < 0)	{
+                imageScale *= 1.05;
+            } else {
+                imageScale *= 0.95;
+            }
+            const imageView = document.getElementById("image-view");
+            imageView.style.setProperty("--image-scale", imageScale.toString());
+            event.preventDefault();
+            return false;
+        }
+    })
+
+    window.scrollTo(window.innerWidth / 2, window.innerHeight / 2);
+
+    `;
+
+    const cssCode = `
+        html {
+            height: 200vh;
+            width: 200vw;
+            overflow: scroll;
+            user-select: none;
+
+            --image-width: 400px;
+            --image-scale: 2;
+        }
+
+        body { }
+
+        .box {
+            position: absolute;
+            left: calc(100vw - calc(var(--image-width) / 2));
+            top: calc(100vh - calc(var(--image-width) / 2));
+        }
+
+        .image-wrapper {
+            user-select: none;
+        }
+
+        .image-wrapper img {
+            display: block;
+            width: var(--image-width);
+            height: auto;
+            transform: scale(var(--image-scale));
+            border-style: dashed;
+            border-color: white;
+            border-width: 1px;
+        }
+    `;
+
     return `<!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Image Display</title>
+        <title>Gerber render display</title>
         <style>
-            body {
-                margin: 1rem;
-            }
-            #container {
-                width: 100vw;
-                height: 100vh;
-            }
-            #image {
-                heigh: auto;
-                width: auto;
-                border: 1px solid black;
-            }
+            ${cssCode}
         </style>
     </head>
     <body>
-        <div id="container">
-            <img id="image" src="data:image/png;base64,${base64Image}" />
+        <div class="box">
+            <div class="image-wrapper">
+                <img draggable="false" id="image-view" src="data:image/png;base64,${base64Image}" />
+            </div>
         </div>
         <script>
-
             (function() {
-                let scale = 1;
-                let ctrlPressed = false;
-
-                function keyDown(e) {
-                    if (e.ctrlKey) {
-                        ctrlPressed = true;
-                    }
-                }
-                window.addEventListener('keydown', keyDown, false);
-
-                function keyUp(e) {
-                    if (!e.ctrlKey) {
-                        ctrlPressed = false;
-                    }
-                }
-                window.addEventListener('keyup', keyUp, false);
-
-                window.addEventListener('wheel', function(event) {
-                    if (!ctrlPressed) {
-                        return;
-                    }
-                    event.preventDefault();
-
-                    let img = document.getElementById('image');
-                    scale -= (event.deltaY * 0.001);
-                    scale = Math.min(Math.max(0.1, scale), 10);
-
-                    img.style.transform = "scale(" + scale + ")"
-                }, false);
+                ${javascriptCode}
             })()
         </script>
     </body>
@@ -445,12 +710,15 @@ function getWebviewContent(base64Image: string): string {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    traceLog(`Python extension loading`);
+    await initializeVscodePythonExtension(context.subscriptions);
+    traceLog(`Python extension loaded`);
+
+    traceLog(`Gerber X3/X2 Format Support extension loading`);
     extension = await ExtensionObject.create(context);
-    await extension.runServer();
+    traceLog(`Gerber X3/X2 Format Support extension loaded`);
 }
 
 export async function deactivate(): Promise<void> {
-    if (lsClient) {
-        await lsClient.stop();
-    }
+    await extension?.stopLanguageServer();
 }

@@ -1,51 +1,63 @@
-import { ConfigurationChangeEvent, WorkspaceFolder } from "vscode";
+import * as vscode from "vscode";
 import * as vscodeapi from "./vscodeapi";
 import { integer } from "vscode-languageclient";
-import * as fs from "fs-extra";
-import * as path from "path";
-import { EXTENSION_ROOT_DIR } from "./constants";
+import { EXTENSION_SETTING_IGNORED_WARNINGS, SETTINGS_NAMESPACE } from "./constants";
 
 export interface ExtensionUserSettings {
     args: string[];
-    interpreter: string[];
+    customInterpreterPath: string;
+    allowAutomaticFallback: boolean;
+    pygerberSearchMode: "environment" | "extension";
+    extensionPygerberInstallDirectory: string | undefined;
     enable: boolean;
     renderDpi: integer;
     imageFormat: string;
     layerStyle: string;
-}
-
-export interface ExtensionStaticSettings {
-    languageServerName: string;
-    settingsNamespace: string;
-}
-
-export function loadExtensionStaticSettings(): ExtensionStaticSettings {
-    const packageJson = path.join(EXTENSION_ROOT_DIR, "package.json");
-    const content = fs.readFileSync(packageJson).toString();
-    const config = JSON.parse(content);
-    return config.extensionStaticSettings as ExtensionStaticSettings;
+    ignoredWarnings: string[];
 }
 
 export function getExtensionUserSettings(
     namespace: string,
-    workspace: WorkspaceFolder
+    workspace: vscode.WorkspaceFolder
 ): ExtensionUserSettings {
     const settings = vscodeapi.getConfiguration(namespace);
 
-    const args = settings.get<string[]>("args") ?? [];
-
-    let interpreter = settings.get<string[]>("interpreter") ?? [];
-    interpreter = interpreter.map((e) => resolveVariables(e, workspace));
-
     const enable = settings.get<boolean>("enable") ?? true;
+
+    const args = settings.get<string[]>("args") ?? [];
+    let customInterpreterPath = resolveVariables(
+        settings.get<string>("customInterpreterPath") ?? "",
+        workspace
+    );
+    const allowAutomaticFallback =
+        settings.get<"on" | "off">("allowAutomaticFallback") === "on";
+    const pygerberSearchMode =
+        settings.get<"environment" | "extension">("pygerberSearchMode") ?? "extension";
+    const extensionPygerberInstallDirectory = settings.get<string>(
+        "extensionPygerberInstallDirectory"
+    );
+
     const renderDpi = settings.get<integer>("renderDpi") ?? 1000;
     const imageFormat = settings.get<string>("imageFormat") ?? ".png";
     const layerStyle = settings.get<string>("layerStyle") ?? "copper_alpha";
 
-    return { args, interpreter, enable, renderDpi, imageFormat, layerStyle };
+    const ignoredWarnings = settings.get<string[]>("ignoredWarnings") ?? [];
+
+    return {
+        args,
+        customInterpreterPath,
+        allowAutomaticFallback,
+        pygerberSearchMode,
+        extensionPygerberInstallDirectory,
+        enable,
+        renderDpi,
+        imageFormat,
+        layerStyle,
+        ignoredWarnings,
+    };
 }
 
-function resolveVariables(value: string, workspace?: WorkspaceFolder): string {
+function resolveVariables(value: string, workspace?: vscode.WorkspaceFolder): string {
     const substitutions = new Map<string, string>();
     const home = process.env.HOME || process.env.USERPROFILE;
     if (home) {
@@ -68,13 +80,42 @@ function resolveVariables(value: string, workspace?: WorkspaceFolder): string {
 }
 
 export function checkIfConfigurationChanged(
-    e: ConfigurationChangeEvent,
-    namespace: string
+    e: vscode.ConfigurationChangeEvent
 ): boolean {
     const settings = [
-        `${namespace}.args`,
-        `${namespace}.interpreter`,
-        `${namespace}.enable`,
+        `${SETTINGS_NAMESPACE}.args`,
+        `${SETTINGS_NAMESPACE}.customInterpreterPath`,
+        `${SETTINGS_NAMESPACE}.allowAutomaticFallback`,
+        `${SETTINGS_NAMESPACE}.pygerberSearchMode`,
+        `${SETTINGS_NAMESPACE}.extensionPygerberInstallDirectory`,
+        `${SETTINGS_NAMESPACE}.renderDpi`,
+        `${SETTINGS_NAMESPACE}.imageFormat`,
+        `${SETTINGS_NAMESPACE}.layerStyle`,
+        `${SETTINGS_NAMESPACE}.ignoredWarnings`,
     ];
     return settings.some((s) => e.affectsConfiguration(s));
+}
+
+export function ignoreWarning(warningId: string) {
+    const configuration = vscode.workspace.getConfiguration();
+    let ignoredWarnings = configuration.get<string[]>(
+        EXTENSION_SETTING_IGNORED_WARNINGS,
+        []
+    );
+
+    if (!ignoredWarnings.includes(warningId)) {
+        ignoredWarnings.push(warningId);
+        configuration.update(
+            EXTENSION_SETTING_IGNORED_WARNINGS,
+            ignoredWarnings,
+            vscode.ConfigurationTarget.Global
+        );
+    }
+}
+
+export function shouldShowWarning(warningId: string): boolean {
+    const ignoredWarnings = vscode.workspace
+        .getConfiguration()
+        .get<string[]>(EXTENSION_SETTING_IGNORED_WARNINGS, []);
+    return !ignoredWarnings.includes(warningId);
 }

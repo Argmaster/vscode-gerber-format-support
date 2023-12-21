@@ -6,7 +6,9 @@ import {
     Uri,
     WorkspaceFolder,
 } from "vscode";
-import { traceError, traceLog } from "./log/logging";
+import { executeCommand } from "./utilities";
+import { traceError, traceInfo, traceLog } from "./log/logging";
+import { ExecOptions } from "child_process";
 
 type Environment = EnvironmentPath & {
     /**
@@ -73,7 +75,7 @@ type Environment = EnvironmentPath & {
  * Derived form of {@link Environment} where certain properties can no longer be `undefined`. Meant to represent an
  * {@link Environment} with complete information.
  */
-type ResolvedEnvironment = Environment & {
+export type ResolvedEnvironment = Environment & {
     /**
      * Carries complete details about python executable.
      */
@@ -199,7 +201,11 @@ type ResolvedVersionInfo = {
     readonly release: PythonVersionRelease;
 };
 
-interface IExtensionApi {
+interface IKnown {
+    internal: ResolvedEnvironment;
+}
+
+export interface IExtensionApi {
     ready: Promise<void>;
     debug: {
         getRemoteLauncherCommand(
@@ -215,6 +221,7 @@ interface IExtensionApi {
             environment: Environment | EnvironmentPath | string
         ): Promise<ResolvedEnvironment | undefined>;
         readonly onDidChangeActiveEnvironmentPath: Event<ActiveEnvironmentPathChangeEvent>;
+        readonly known: IKnown[];
     };
 }
 
@@ -227,8 +234,8 @@ const onDidChangePythonInterpreterEvent = new EventEmitter<IInterpreterDetails>(
 export const onDidChangePythonInterpreter: Event<IInterpreterDetails> =
     onDidChangePythonInterpreterEvent.event;
 
-async function activateExtension() {
-    const extension = extensions.getExtension("ms-python.python");
+async function activateExtension(name: string) {
+    const extension = extensions.getExtension(name);
     if (extension) {
         if (!extension.isActive) {
             await extension.activate();
@@ -237,8 +244,8 @@ async function activateExtension() {
     return extension;
 }
 
-async function getPythonExtensionAPI(): Promise<IExtensionApi | undefined> {
-    const extension = await activateExtension();
+export async function getPythonExtensionAPI(): Promise<IExtensionApi | undefined> {
+    const extension = await activateExtension("ms-python.python");
     return extension?.exports as IExtensionApi;
 }
 
@@ -265,10 +272,10 @@ export async function initializePython(disposables: Disposable[]): Promise<void>
 }
 
 export async function resolveInterpreter(
-    interpreter: string[]
+    interpreter: string
 ): Promise<ResolvedEnvironment | undefined> {
     const api = await getPythonExtensionAPI();
-    return api?.environments.resolveEnvironment(interpreter[0]);
+    return api?.environments.resolveEnvironment(interpreter);
 }
 
 export async function getInterpreterDetails(
@@ -295,31 +302,225 @@ export function checkVersion(resolved: ResolvedEnvironment | undefined): boolean
     return false;
 }
 
-export type IsInterpreterGood = {
-    isGood: boolean;
-    path: string;
-    environment?: ResolvedEnvironment;
-};
+class Version {
+    private major: number;
+    private minor: number;
+    private patch: number;
 
-export async function isInterpreterGood(
-    interpreter: string[] | undefined
-): Promise<IsInterpreterGood> {
-    if (interpreter && interpreter.length > 0) {
-        const environment = await resolveInterpreter(interpreter);
-        if (checkVersion(environment)) {
-            const path = environment?.executable.uri?.fsPath;
-            if (path) {
-                return {
-                    isGood: true,
-                    path: path,
-                    environment: environment,
-                };
+    constructor(major: number, minor: number, patch: number) {
+        this.major = major;
+        this.minor = minor;
+        this.patch = patch;
+    }
+    public static fromString(versionString: string): Version {
+        const regex = /.*?(\d+)\.(\d+)\.(\d+)/;
+        const match = versionString.match(regex);
+
+        if (!match) {
+            throw new Error("Invalid version string");
+        }
+
+        const [, major, minor, patch] = match.map(Number);
+        return new Version(major, minor, patch);
+    }
+    public toString(sep: string = "."): string {
+        return `${this.major}${sep}${this.minor}${sep}${this.patch}`;
+    }
+}
+
+export class PythonEnvironment {
+    private pythonID: string;
+    private executablePath: string;
+    private pythonVersion: Version;
+    private isActive: boolean;
+    private isCustom: boolean;
+    private customPythonPath: string | undefined;
+    private hasPyGerberLanguageServer: boolean;
+    private pyGerberVersion: Version | undefined;
+
+    constructor(
+        pythonID: string,
+        interpreterPath: string,
+        pythonVersion: Version,
+        isActive: boolean,
+        isCustom: boolean,
+        hasPyGerberLanguageServer: boolean,
+        pyGerberVersion: Version | undefined,
+        customPythonPath: string | undefined = undefined
+    ) {
+        this.pythonID = pythonID;
+        this.executablePath = interpreterPath;
+        this.pythonVersion = pythonVersion;
+        this.isActive = isActive;
+        this.isCustom = isCustom;
+        this.customPythonPath = undefined;
+        this.hasPyGerberLanguageServer = hasPyGerberLanguageServer;
+        this.pyGerberVersion = pyGerberVersion;
+        this.customPythonPath = customPythonPath;
+    }
+
+    static async fromResolvedEnvironment(
+        resolvedEnvironment: ResolvedEnvironment,
+        isActive: boolean = false,
+        isCustom: boolean = false
+    ): Promise<PythonEnvironment> {
+        const isPyGerberLanguageServerAvailable =
+            await PythonEnvironment.resolvePyGerberLanguageServerAvailable(
+                resolvedEnvironment.path
+            );
+        const pyGerberVersion = isPyGerberLanguageServerAvailable
+            ? await PythonEnvironment.resolvePyGerberVersion(resolvedEnvironment.path)
+            : undefined;
+
+        return new PythonEnvironment(
+            resolvedEnvironment.id,
+            resolvedEnvironment.path,
+            new Version(
+                resolvedEnvironment.version.major ?? 0,
+                resolvedEnvironment.version.minor ?? 0,
+                resolvedEnvironment.version.micro ?? 0
+            ),
+            isActive,
+            isCustom,
+            isPyGerberLanguageServerAvailable,
+            pyGerberVersion
+        );
+    }
+
+    static async fromPythonEnvironment(
+        environment: PythonEnvironment,
+        extensionPyGerberStoragePath: string
+    ): Promise<PythonEnvironment> {
+        const customEnvironment = {
+            ...process.env,
+            PYTHONPATH: extensionPyGerberStoragePath, // eslint-disable-line @typescript-eslint/naming-convention
+        };
+        const isPyGerberLanguageServerAvailable =
+            await PythonEnvironment.resolvePyGerberLanguageServerAvailable(
+                environment.executablePath,
+                {
+                    env: customEnvironment,
+                }
+            );
+        const pyGerberVersion = isPyGerberLanguageServerAvailable
+            ? await PythonEnvironment.resolvePyGerberVersion(
+                  environment.executablePath,
+                  {
+                      env: customEnvironment,
+                  }
+              )
+            : undefined;
+
+        return new PythonEnvironment(
+            environment.pythonID,
+            environment.executablePath,
+            environment.pythonVersion,
+            environment.isActive,
+            environment.isCustom,
+            isPyGerberLanguageServerAvailable,
+            pyGerberVersion,
+            extensionPyGerberStoragePath
+        );
+    }
+
+    static async resolvePyGerberLanguageServerAvailable(
+        executablePath: string,
+        options: ExecOptions = {}
+    ): Promise<boolean> {
+        try {
+            {
+                const { code, stdout, stderr } = await executeCommand(
+                    [
+                        executablePath,
+                        "-m",
+                        "pygerber",
+                        "is-language-server-available",
+                    ].join(" "),
+                    options
+                );
+                const fullOutput = `${stdout} ${stderr}`;
+                const languageServerAvailable =
+                    code === 0 && fullOutput.includes("Language server is available.");
+                if (!languageServerAvailable) {
+                    return false;
+                }
             }
+            {
+                const { code, stdout, stderr } = await executeCommand(
+                    [executablePath, "-m", "pip", "show", "pygls"].join(" "),
+                    options
+                );
+                const fullOutput = `${stdout} ${stderr}`;
+
+                if (code !== 0 || fullOutput.includes("Package(s) not found: pygls")) {
+                    return false;
+                }
+            }
+            return true;
+        } catch {
+            return false;
         }
     }
 
-    return {
-        isGood: false,
-        path: "",
-    };
+    private static async resolvePyGerberVersion(
+        executablePath: string,
+        options: ExecOptions = {}
+    ): Promise<Version | undefined> {
+        const { code, stdout, stderr } = await executeCommand(
+            [executablePath, "-m", "pygerber", "--version"].join(" "),
+            options
+        );
+        if (code === 0) {
+            return Version.fromString(stdout);
+        }
+    }
+
+    getPythonID(): string {
+        return this.pythonID;
+    }
+
+    getExecutablePath(): string {
+        return this.executablePath;
+    }
+
+    getPythonVersion(): Version {
+        return this.pythonVersion;
+    }
+
+    getIsActive(): boolean {
+        return this.isActive;
+    }
+
+    getIsCustom(): boolean {
+        return this.isCustom;
+    }
+
+    getPyGerberVersion(): Version | undefined {
+        return this.pyGerberVersion;
+    }
+
+    isPyGerberLanguageServerAvailable(): boolean {
+        return this.hasPyGerberLanguageServer;
+    }
+
+    getCustomPythonPath() {
+        return this.customPythonPath;
+    }
+
+    getPythonEnvironment() {
+        const customPythonPath = this.getCustomPythonPath();
+        let customEnvironment = {
+            ...process.env,
+        };
+        if (customPythonPath !== undefined) {
+            customEnvironment.PYTHONPATH = this.getCustomPythonPath();
+        }
+        return customEnvironment;
+    }
+
+    async executePythonCommand(cmd: string) {
+        return await executeCommand([this.getExecutablePath(), cmd].join(" "), {
+            env: this.getPythonEnvironment(),
+        });
+    }
 }

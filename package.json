@@ -52,6 +52,7 @@
         "vscode": "^1.70.0"
     },
     "dependencies": {
+        "@vscode/vsce": "^2.22.0",
         "fs-extra": "^11.1.1",
         "ovsx": "^0.7.1",
         "vscode-languageclient": "^8.1.0",
@@ -155,6 +156,13 @@
         },
         "configuration": {
             "properties": {
+                "gerber_x3_x2_format_support.enable": {
+                    "title": "Enable Language Server",
+                    "description": "Whether to enable the PyGerber language server.",
+                    "default": true,
+                    "scope": "window",
+                    "type": "boolean"
+                },
                 "gerber_x3_x2_format_support.args": {
                     "default": [],
                     "markdownDescription": "Additional command-line arguments to pass to `PyGerber`.",
@@ -164,42 +172,58 @@
                     "scope": "resource",
                     "type": "array"
                 },
-                "gerber_x3_x2_format_support.interpreter": {
-                    "default": [],
-                    "markdownDescription": "Path to a Python interpreter to use to run the linter server.",
+                "gerber_x3_x2_format_support.customInterpreterPath": {
+                    "default": "",
+                    "markdownDescription": "Path to a custom Python interpreter to use to run the linter server. You may use variables ${cwd}, ${userHome} and ${workspaceFolder} to express relative paths.",
                     "scope": "window",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
+                    "type": "string"
                 },
-                "gerber_x3_x2_format_support.enable": {
-                    "default": true,
-                    "markdownDescription": "Whether to enable the PyGerber language server.",
+                "gerber_x3_x2_format_support.allowAutomaticFallback": {
+                    "default": "on",
+                    "markdownDescription": "Allow automatic fallback to different interpreter (if present) when selected interpreter fails to start language server.",
                     "scope": "window",
-                    "type": "boolean",
-                    "title": "Enable Language Server"
+                    "enum": [
+                        "off",
+                        "on"
+                    ]
+                },
+                "gerber_x3_x2_format_support.pygerberSearchMode": {
+                    "title": "PyGerber Search Mode",
+                    "markdownDescription": "Where to look for PyGerber installation. `environment` means that extension will attempt to use Python interpreter environment. `extension` will result in extension relying on internal virtual environment.",
+                    "scope": "window",
+                    "default": "extension",
+                    "enum": [
+                        "environment",
+                        "extension"
+                    ]
+                },
+                "gerber_x3_x2_format_support.extensionPygerberInstallDirectory": {
+                    "title": "Extension PyGerber Installation Directory",
+                    "type": "string",
+                    "scope": "machine",
+                    "default": "",
+                    "description": "Path to directory containing PyGerber installation created automatically on user request."
                 },
                 "gerber_x3_x2_format_support.renderDpi": {
+                    "title": "Render DPI",
+                    "description": "DPI of rendered images.",
                     "default": 1000,
-                    "markdownDescription": "DPI of rendered images.",
                     "scope": "resource",
-                    "type": "integer",
-                    "title": "Render DPI"
+                    "type": "integer"
                 },
                 "gerber_x3_x2_format_support.imageFormat": {
+                    "title": "Image Format",
+                    "description": "Format of rendered images.",
                     "default": ".png",
-                    "markdownDescription": "Format of rendered images.",
                     "scope": "resource",
-                    "type": "string",
-                    "title": "Image Format"
+                    "type": "string"
                 },
                 "gerber_x3_x2_format_support.layerStyle": {
+                    "title": "Layer styles",
+                    "description": "Style of rendered images.",
                     "default": "copper_alpha",
-                    "markdownDescription": "Style of rendered images.",
                     "scope": "resource",
                     "type": "string",
-                    "title": "Layer styles",
                     "enum": [
                         "silk",
                         "silk_alpha",
@@ -212,12 +236,15 @@
                         "default_grayscale",
                         "debug_1"
                     ]
+                },
+                "gerber_x3_x2_format_support.ignoredWarnings": {
+                    "title": "Ignored Warnings",
+                    "type": "array",
+                    "scope": "machine",
+                    "default": [],
+                    "description": "List of warnings ignored by the user."
                 }
             }
         }
-    },
-    "extensionStaticSettings": {
-        "languageServerName": "Gerber Language Server",
-        "settingsNamespace": "gerber_x3_x2_format_support"
     }
 }

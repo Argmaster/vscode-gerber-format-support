@@ -5,7 +5,7 @@ import { Trace } from "vscode-jsonrpc/node";
 import * as vscodeapi from "./vscodeapi";
 import { ExecOptions, exec } from "child_process";
 import { integer } from "vscode-languageclient";
-import { traceLog } from "./log/logging";
+import { traceVerbose } from "./log/logging";
 
 function logLevelToTrace(logLevel: LogLevel): Trace {
     switch (logLevel) {
@@ -89,12 +89,16 @@ export async function executeCommand(
         exec(command, options, (error, stdout, stderr) => {
             const code = error?.code ?? 0;
 
-            traceLog("---------------------------------------------------------------");
-            traceLog(`   cmd:   ${command}`);
-            traceLog(`  code:   ${code}`);
-            traceLog(`stdout:   ${stdout}`);
-            traceLog(`stderr:   ${stderr}`);
-            traceLog("---------------------------------------------------------------");
+            traceVerbose(
+                "---------------------------------------------------------------"
+            );
+            traceVerbose(`   cmd:   ${command}`);
+            traceVerbose(`  code:   ${code}`);
+            traceVerbose(`stdout:   \n${stdout}`);
+            traceVerbose(`stderr:   \n${stderr}`);
+            traceVerbose(
+                "---------------------------------------------------------------"
+            );
 
             resolve({ code, stdout, stderr });
         });

@@ -28,9 +28,12 @@ Afterwards all extension features should be available.
 
 ### 2. Language Server using PyGerber
 
-This extension utilizes PyGerber 2.1.0 builtin Gerber language server. To use this
-feature you will need to install Python 3.8+ on your device and Visual Studio Python
-Extension from Microsoft.
+This extension utilizes PyGerber 2.1.0 builtin Gerber language server.
+
+> ⚠️ Warning
+>
+> To use this feature you will need to install Python 3.8+ on your device and Visual
+> Studio Python Extension from Microsoft (`ms-python.python`).
 
 After starting this extension for the first time you will be presented with popup in
 bottom right corner asking if you want to install PyGerber automatically. Currently it
