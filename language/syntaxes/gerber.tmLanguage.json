@@ -27,11 +27,11 @@
     ],
     "repository": {
         "g_code": {
-            "match": "(G0?1|G0?2|G0?3|G36|G37|G54|G55|G70|G71|G74|G75|G90|G91)",
+            "match": "(G0*1|G0*2|G0*3|G36|G37|G54|G55|G70|G71|G74|G75|G90|G91)",
             "name": "keyword.g_code"
         },
         "draw_operations": {
-            "match": "(D0?1|D0?2|D0?3)",
+            "match": "(D0*1|D0*2|D0*3)",
             "name": "keyword.draw_operation"
         },
         "aperture_specification": {
@@ -99,7 +99,7 @@
             }
         },
         "comment": {
-            "begin": "G0?4",
+            "begin": "G0*4",
             "end": "(?=(\\*))",
             "beginCaptures": {
                 "0": { "name": "keyword" }
@@ -116,7 +116,7 @@
             "name": "comment"
         },
         "attribute_comment": {
-            "begin": "(G0?4)\\s*(#@!)",
+            "begin": "(G0*4)\\s*(#@!)",
             "end": "(?=(\\*))",
             "beginCaptures": {
                 "1": { "name": "keyword" },
@@ -376,7 +376,7 @@
         },
         "end-of-file": {
             "name": "keyword",
-            "match": "(M0?2|M0?1|M0?0)"
+            "match": "(M0*2|M0*1|M0*0)"
         }
     }
 }
