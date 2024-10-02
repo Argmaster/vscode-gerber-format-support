@@ -49,42 +49,11 @@
     ],
     "main": "./dist/extension.js",
     "engines": {
-        "vscode": "^1.70.0"
+        "vscode": "^1.90.0"
     },
-    "dependencies": {
-        "@vscode/vsce": "^2.22.0",
-        "fs-extra": "^11.1.1",
-        "ovsx": "^0.7.1",
-        "vscode-languageclient": "^8.1.0",
-        "vscode-languageserver-textdocument": "^1.0.8"
-    },
-    "devDependencies": {
-        "@types/fs-extra": "^11.0.2",
-        "@types/mocha": "^10.0.1",
-        "@types/node": "16.x",
-        "@types/vscode": "^1.70.0",
-        "@typescript-eslint/eslint-plugin": "^6.4.1",
-        "@typescript-eslint/parser": "^6.4.1",
-        "@vscode/test-electron": "^2.3.4",
-        "eslint": "^8.47.0",
-        "glob": "^10.3.3",
-        "mocha": "^10.2.0",
-        "ts-loader": "^9.4.4",
-        "typescript": "^5.1.6",
-        "webpack": "^5.88.2",
-        "webpack-cli": "^5.1.4"
-    },
-    "scripts": {
-        "vscode:prepublish": "npm run package",
-        "compile": "webpack",
-        "watch": "webpack --watch",
-        "package": "webpack --mode production --devtool hidden-source-map",
-        "compile-tests": "tsc -p . --outDir out",
-        "watch-tests": "tsc -p . -w --outDir out",
-        "pretest": "npm run compile-tests && npm run compile && npm run lint",
-        "lint": "eslint src --ext ts",
-        "test": "node ./out/test/runTest.js"
-    },
+    "extensionDependencies": [
+        "ms-python.python"
+    ],
     "contributes": {
         "languages": [
             {
@@ -135,6 +104,25 @@
                 "path": "./language/syntaxes/gerber-macro.tmLanguage.json"
             }
         ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "gerber-x3-x2-format-support-view-container",
+                    "title": "Gerber X3/X2 Format Support",
+                    "icon": "icon/gerber_logo.svg"
+                }
+            ]
+        },
+        "views": {
+            "gerber-x3-x2-format-support-view-container": [
+                {
+                    "id": "gerber-x3-x2-format-support-environments",
+                    "name": "Python environments",
+                    "icon": "media/gerber_logo.svg",
+                    "contextualTitle": "Python environments"
+                }
+            ]
+        },
         "commands": [
             {
                 "command": "gerber_x3_x2_format_support.restart",
@@ -246,5 +234,41 @@
                 }
             }
         }
+    },
+    "dependencies": {
+        "fs-extra": "^11.1.1",
+        "ovsx": "^0.7.1",
+        "semver": "^7.6.3",
+        "vscode-languageclient": "^8.1.0",
+        "vscode-languageserver-textdocument": "^1.0.8",
+        "@vscode/python-extension": "^1.0.5"
+    },
+    "devDependencies": {
+        "@types/fs-extra": "^11.0.2",
+        "@types/mocha": "^10.0.1",
+        "@types/node": "16.x",
+        "@types/vscode": "^1.90.0",
+        "@typescript-eslint/eslint-plugin": "^6.4.1",
+        "@typescript-eslint/parser": "^6.4.1",
+        "@vscode/test-electron": "^2.3.4",
+        "@vscode/vsce": "^2.22.0",
+        "eslint": "^8.47.0",
+        "glob": "^10.3.3",
+        "mocha": "^10.2.0",
+        "ts-loader": "^9.4.4",
+        "typescript": "^5.1.6",
+        "webpack": "^5.88.2",
+        "webpack-cli": "^5.1.4"
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run package",
+        "compile": "webpack",
+        "watch": "webpack --watch",
+        "package": "webpack --mode production --devtool hidden-source-map",
+        "compile-tests": "tsc -p . --outDir out",
+        "watch-tests": "tsc -p . -w --outDir out",
+        "pretest": "npm run compile-tests && npm run compile && npm run lint",
+        "lint": "eslint src --ext ts",
+        "test": "node ./out/test/runTest.js"
     }
 }

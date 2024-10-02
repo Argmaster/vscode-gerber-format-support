@@ -7,7 +7,7 @@ import {
     WorkspaceFolder,
 } from "vscode";
 import { executeCommand } from "./utilities";
-import { traceError, traceInfo, traceLog } from "./log/logging";
+import { traceError, traceLog } from "./log/logging";
 import { ExecOptions } from "child_process";
 
 type Environment = EnvironmentPath & {

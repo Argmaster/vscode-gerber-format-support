@@ -22,14 +22,6 @@ export function getConfiguration(
     return workspace.getConfiguration(config, scope);
 }
 
-export function registerCommand(
-    command: string,
-    callback: (...args: any[]) => any,
-    thisArg?: any
-): Disposable {
-    return commands.registerCommand(command, callback, thisArg);
-}
-
 export const { onDidChangeConfiguration } = workspace;
 
 export function isVirtualWorkspace(): boolean {
