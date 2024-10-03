@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { getCommandLogger } from "./logging";
+import * as logging from "./logging";
 
 export async function runCommand(
     command: string,
@@ -24,12 +24,14 @@ export async function runCommand(
 
         // Handle process exit
         child.on("close", (code) => {
-            getCommandLogger().traceInfo(
-                `${command} ${args.join(" ")}\n` +
-                    `\nexit code: ${code} (${child.exitCode})\n` +
-                    `\nstdout: ${stdout}\n` +
-                    `\nstderr: ${stderr}`
-            );
+            logging
+                .getCommandLogger()
+                .traceInfo(
+                    `${command} ${args.join(" ")}\n` +
+                        `\nexit code: ${code} (${child.exitCode})\n` +
+                        `\nstdout: ${stdout}\n` +
+                        `\nstderr: ${stderr}`
+                );
             resolve(new Result(stdout, stderr, child.exitCode, child.signalCode));
         });
 

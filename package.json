@@ -2,8 +2,8 @@
     "name": "gerber-x3-x2-format-support",
     "displayName": "Gerber X3/X2 Format Support",
     "description": "Visual Studio Code support for Gerber X3/X2 file format",
-    "version": "2.1.1",
-    "license": "SEE LICENSE IN LICENSE.md",
+    "version": "3.0.0",
+    "license": "MIT",
     "maintainers": [
         {
             "name": "Krzysztof Wiśniewski",
@@ -27,9 +27,13 @@
     ],
     "capabilities": {
         "untrustedWorkspaces": {
-            "supported": true
+            "supported": true,
+            "description": "This extension supports untrusted workspaces."
         },
-        "virtualWorkspaces": true
+        "virtualWorkspaces": {
+            "supported": false,
+            "description": "This extension doesn't support virtual workspaces."
+        }
     },
     "keywords": [
         "gerber",
@@ -44,7 +48,6 @@
     "icon": "icon/icon.png",
     "publisher": "argmaster",
     "activationEvents": [
-        "onLanguage:gerber",
         "onLanguage:plaintext"
     ],
     "main": "./dist/extension.js",
@@ -137,7 +140,13 @@
                 "icon": "$(refresh)"
             },
             {
-                "command": "gerber_x3_x2_format_support.restart",
+                "command": "gerber_x3_x2_format_support.activateEnvironment",
+                "title": "Gerber: Activate Python environment",
+                "shortTitle": "Activate Python environments",
+                "icon": "$(debug-start)"
+            },
+            {
+                "command": "gerber_x3_x2_format_support.restartLanguageServer",
                 "title": "Gerber: Restart language server"
             },
             {
@@ -162,11 +171,20 @@
             ],
             "view/item/context": [
                 {
+                    "command": "gerber_x3_x2_format_support.refreshPythonEnvironments",
+                    "when": "view == gerber-x3-x2-format-support-environments"
+                },
+                {
                     "command": "gerber_x3_x2_format_support.installPyGerber",
                     "when": "view == gerber-x3-x2-format-support-environments && (viewItem == PythonEnvironmentItem || viewItem == PythonEnvironmentPropertyItem)"
                 },
                 {
                     "command": "gerber_x3_x2_format_support.installPyGerber",
+                    "when": "view == gerber-x3-x2-format-support-environments && viewItem == PythonEnvironmentItem",
+                    "group": "inline"
+                },
+                {
+                    "command": "gerber_x3_x2_format_support.activateEnvironment",
                     "when": "view == gerber-x3-x2-format-support-environments && viewItem == PythonEnvironmentItem",
                     "group": "inline"
                 }

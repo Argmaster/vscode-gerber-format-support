@@ -12,19 +12,40 @@ export const LANGUAGE_SERVER_LOGGER_NAME = "Gerber X3/X2 Format: Language Server
 type Arguments = unknown[];
 
 export function initLoggers() {
-    generic = new Logger(
-        vscode.window.createOutputChannel(GENERIC_LOGGER_NAME, { log: true })
-    );
-    commandLogger = new Logger(
-        vscode.window.createOutputChannel(COMMAND_LOGGER_NAME, {
-            log: true,
-        })
-    );
-    languageServer = new Logger(
-        vscode.window.createOutputChannel(LANGUAGE_SERVER_LOGGER_NAME, {
-            log: true,
-        })
-    );
+    if (generic === undefined) {
+        generic = new Logger(
+            vscode.window.createOutputChannel(GENERIC_LOGGER_NAME, { log: true })
+        );
+    }
+    if (commandLogger === undefined) {
+        commandLogger = new Logger(
+            vscode.window.createOutputChannel(COMMAND_LOGGER_NAME, {
+                log: true,
+            })
+        );
+    }
+    if (languageServer === undefined) {
+        languageServer = new Logger(
+            vscode.window.createOutputChannel(LANGUAGE_SERVER_LOGGER_NAME, {
+                log: true,
+            })
+        );
+    }
+}
+
+export function cleanUpLoggers() {
+    if (generic !== undefined) {
+        generic.getChannel().dispose();
+        generic = undefined;
+    }
+    if (commandLogger !== undefined) {
+        commandLogger.getChannel().dispose();
+        commandLogger = undefined;
+    }
+    if (languageServer !== undefined) {
+        languageServer.getChannel().dispose();
+        languageServer = undefined;
+    }
 }
 
 export function getGenericLogger(): Logger {
@@ -42,7 +63,7 @@ export function getLanguageServerLogger(): Logger {
     if (languageServer === undefined) {
         initLoggers();
         if (languageServer === undefined) {
-            throw new Error("Failed to initialize generic logger.");
+            throw new Error("Failed to initialize language server logger.");
         }
         return languageServer;
     }
@@ -81,5 +102,9 @@ export class Logger {
 
     public traceVerbose(...data: Arguments): void {
         this.channel.debug(util.format(...data));
+    }
+
+    public getChannel(): vscode.LogOutputChannel {
+        return this.channel;
     }
 }

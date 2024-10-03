@@ -1,42 +1,49 @@
 import * as vscode from "vscode";
 import * as python_extension from "@vscode/python-extension";
-import { PythonTreeView } from "./python_view";
 import { getGenericLogger } from "./logging";
 import { runCommand } from "./child";
 import * as semver from "semver";
-import { get } from "node:http";
 
 export class Python {
     private knownEnvironments: PythonEnvironment[] = [];
     private activeEnvironment: PythonEnvironment | undefined;
-    private pythonTreeView: PythonTreeView | undefined;
+    private disposables: vscode.Disposable[] = [];
+    public environmentUpdatesSubscription: { refresh: () => void }[] = [];
 
-    constructor(private readonly pythonApi: python_extension.PythonExtension) {
-        getGenericLogger()?.traceInfo("Python manager initialized");
+    constructor(
+        private readonly pythonApi: python_extension.PythonExtension,
+        disposables: vscode.Disposable[] = []
+    ) {
+        getGenericLogger().traceInfo(`Python.constructor`);
     }
 
     public static async new(context: vscode.ExtensionContext): Promise<Python> {
         const pythonApi = await python_extension.PythonExtension.api();
-        const manager = new Python(pythonApi);
+        let disposables: vscode.Disposable[] = [];
+        const manager = new Python(pythonApi, disposables);
+
+        const activeEnvironment = await pythonApi.environments.resolveEnvironment(
+            await pythonApi.environments.getActiveEnvironmentPath()
+        );
+        if (activeEnvironment === undefined) {
+            await manager.activateBestEnvironment();
+        }
+
         await manager.refresh();
 
-        context.subscriptions.push(
+        disposables.push(
             pythonApi.environments.onDidChangeEnvironments(
                 async (e: python_extension.EnvironmentsChangeEvent) => {
                     await manager.refresh();
-                    if (manager.pythonTreeView) {
-                        manager.pythonTreeView.refresh();
-                    }
+                    manager.environmentUpdatesSubscription.forEach((s) => s.refresh());
                 }
             )
         );
-        context.subscriptions.push(
+        disposables.push(
             pythonApi.environments.onDidChangeActiveEnvironmentPath(
                 async (e: python_extension.ActiveEnvironmentPathChangeEvent) => {
                     await manager.refresh();
-                    if (manager.pythonTreeView) {
-                        manager.pythonTreeView.refresh();
-                    }
+                    manager.environmentUpdatesSubscription.forEach((s) => s.refresh());
                 }
             )
         );
@@ -44,14 +51,30 @@ export class Python {
         return manager;
     }
 
-    bindTreeView(treeView: PythonTreeView) {
-        this.pythonTreeView = treeView;
+    async activateEnvironment(env: PythonEnvironment) {
+        getGenericLogger().traceInfo(`Python.activateEnvironment: ${env.label}`);
+        this.pythonApi.environments.updateActiveEnvironmentPath(env.path);
+    }
+
+    dispose() {
+        getGenericLogger().traceInfo(`Python.dispose`);
+
+        this.disposables.forEach((d) => d.dispose());
+        this.disposables = [];
+        this.knownEnvironments = [];
+        this.activeEnvironment = undefined;
     }
 
     async refresh() {
+        getGenericLogger().traceInfo(`Python.refresh`);
+
         const activeEnvironment = await this.pythonApi.environments.resolveEnvironment(
             await this.pythonApi.environments.getActiveEnvironmentPath()
         );
+        getGenericLogger().traceInfo(
+            `Python.refresh: activeEnvironment: ${activeEnvironment?.id}`
+        );
+
         const envs = await Promise.all(
             this.pythonApi.environments.known.map(async (env) => {
                 const resolved = await this.pythonApi.environments.resolveEnvironment(
@@ -86,7 +109,7 @@ export class Python {
                         resolved.id,
                         resolved.environment?.folderUri.fsPath ?? resolved.path,
                         resolved.executable.uri,
-                        new semver.SemVer(result.stdout.trim()),
+                        toSemVer(result.stdout.trim()),
                         packages as PackageInfo[],
                         resolved.id === activeEnvironment?.id
                     );
@@ -107,6 +130,34 @@ export class Python {
     async getActiveEnvironment() {
         return this.activeEnvironment;
     }
+
+    async activateBestEnvironment() {
+        getGenericLogger().traceInfo(`Python.activateBestEnvironment`);
+
+        const best = this.knownEnvironments.reduceRight((best, env) => {
+            if (best === undefined) {
+                return env;
+            }
+
+            const pyGerber = env.getPyGerber();
+            if (pyGerber === undefined) {
+                return best;
+            }
+
+            const bestPyGerber = best.getPyGerber();
+            if (bestPyGerber === undefined) {
+                return env;
+            }
+
+            if (semver.gte(pyGerber.version, bestPyGerber.version)) {
+                return env;
+            }
+            return best;
+        });
+        if (this.activeEnvironment !== best) {
+            await this.activateEnvironment(best);
+        }
+    }
 }
 
 export class PythonEnvironment {
@@ -119,11 +170,14 @@ export class PythonEnvironment {
         public readonly version: semver.SemVer,
         public readonly packages: PackageInfo[],
         public readonly isActive: boolean
-    ) {}
+    ) {
+        getGenericLogger().traceInfo(`PythonEnvironment.constructor: ${label}`);
+    }
 
     getPyGerber() {
         return this.packages.find((pkg) => pkg.name === "pygerber");
     }
+
     async hasLanguageServer() {
         if (this.hasLanguageServerFlag !== undefined) {
             return this.hasLanguageServerFlag;
@@ -150,6 +204,8 @@ export class PythonEnvironment {
     }
 
     async installPyGerber(version: string) {
+        getGenericLogger().traceInfo(`Python.installPyGerber`);
+
         const result = await runCommand(this.executableUri.fsPath, [
             "-m",
             "pip",
@@ -172,6 +228,8 @@ export class PythonEnvironment {
     }
 
     async queryPyGerberVersions(): Promise<string[]> {
+        getGenericLogger().traceInfo(`Python.queryPyGerberVersions`);
+
         const result = await runCommand(this.executableUri.fsPath, [
             "-m",
             "pip",
