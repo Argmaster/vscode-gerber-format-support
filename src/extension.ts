@@ -1,20 +1,35 @@
 import * as vscode from "vscode";
 import { Python } from "./python";
-import { PythonTreeView } from "./python_view";
+import { PythonTreeView, registerPythonViewCommands } from "./python_view";
+
+export class ExtensionState {
+    constructor(
+        public readonly context: vscode.ExtensionContext,
+        public readonly pythonManager: Python,
+        public readonly pythonTreeView: PythonTreeView
+    ) {}
+
+    static async new(context: vscode.ExtensionContext): Promise<ExtensionState> {
+        const pythonManager = await Python.new(context);
+        const pythonTreeView = new PythonTreeView(pythonManager);
+        pythonManager.bindTreeView(pythonTreeView);
+
+        const extensionState = new ExtensionState(context, pythonManager, pythonTreeView);
+        await extensionState.register();
+
+        return extensionState;
+    }
+
+    register() {
+        vscode.window.registerTreeDataProvider(
+            "gerber-x3-x2-format-support-environments",
+            this.pythonTreeView
+        );
+        registerPythonViewCommands(this);
+    }
+    dispose() {}
+}
 
 export async function activate(context: vscode.ExtensionContext) {
-    const rootPath =
-        vscode.workspace.workspaceFolders &&
-        vscode.workspace.workspaceFolders.length > 0
-            ? vscode.workspace.workspaceFolders[0].uri.fsPath
-            : undefined;
-
-    const pythonManager = await Python.new(context);
-    const pythonTreeView = new PythonTreeView(pythonManager);
-    pythonManager.bindTreeView(pythonTreeView);
-
-    vscode.window.registerTreeDataProvider(
-        "gerber-x3-x2-format-support-environments",
-        pythonTreeView
-    );
+    return await ExtensionState.new(context);
 }

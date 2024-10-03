@@ -125,6 +125,18 @@
         },
         "commands": [
             {
+                "command": "gerber_x3_x2_format_support.installPyGerber",
+                "title": "Gerber: Install PyGerber package",
+                "shortTitle": "Install PyGerber package",
+                "icon": "$(cloud-download)"
+            },
+            {
+                "command": "gerber_x3_x2_format_support.refreshPythonEnvironments",
+                "title": "Gerber: Refresh Python environments",
+                "shortTitle": "Refresh Python environments",
+                "icon": "$(refresh)"
+            },
+            {
                 "command": "gerber_x3_x2_format_support.restart",
                 "title": "Gerber: Restart language server"
             },
@@ -139,6 +151,24 @@
                     "group": "gerber",
                     "command": "gerber_x3_x2_format_support.render",
                     "when": "resourceLangId == gerber"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "gerber_x3_x2_format_support.refreshPythonEnvironments",
+                    "when": "view == gerber-x3-x2-format-support-environments",
+                    "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "gerber_x3_x2_format_support.installPyGerber",
+                    "when": "view == gerber-x3-x2-format-support-environments && (viewItem == PythonEnvironmentItem || viewItem == PythonEnvironmentPropertyItem)"
+                },
+                {
+                    "command": "gerber_x3_x2_format_support.installPyGerber",
+                    "when": "view == gerber-x3-x2-format-support-environments && viewItem == PythonEnvironmentItem",
+                    "group": "inline"
                 }
             ]
         },

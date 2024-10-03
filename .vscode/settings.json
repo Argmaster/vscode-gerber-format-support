@@ -23,6 +23,8 @@
         "Pyenv",
         "pygerber",
         "pygls",
+        "pypi",
+        "pythonhosted",
         "PYTHONPATH",
         "Venv",
         "vscodeapi"
